@@ -243,7 +243,7 @@ with tab_report:
 
                 site_html = render.render_site(reports)
                 store.commit_files(
-                    {render.site_path(period_label): site_html.encode("utf-8")},
+                    {render.site_path(): site_html.encode("utf-8")},
                     f"網頁：{period_label}",
                 )
             except Exception as exc:  # noqa: BLE001

@@ -117,7 +117,8 @@ def test_沒有任何報告時也能產生網頁不會炸():
 
 def test_報告與網頁的儲存路徑():
     assert render.report_path("2026-08-14") == "data/published/2026-08-14/report.md"
-    assert render.site_path("2026-08-14") == "data/published/2026-08-14/index.html"
+    # 網站是固定位置，不隨期別改變 —— Cloudflare Pages 才盯得住
+    assert render.site_path() == "site/index.html"
 
 
 def test_內容中的_HTML_標籤不會被當成標記執行():
@@ -157,3 +158,11 @@ def test_窄螢幕樣式含卡片堆疊規則():
     media_block = html[media_start:media_end]
     assert "thead { display: none; }" in media_block
     assert "td[data-label]::before" in media_block
+
+
+def test_網站固定產生在同一個位置():
+    assert render.SITE_PATH == "site/index.html"
+
+
+def test_每期報告原稿仍各自存檔():
+    assert render.report_path("2026-08-14") == "data/published/2026-08-14/report.md"

@@ -12,6 +12,10 @@ from jinja2 import Template
 
 PUBLISHED_ROOT = "data/published"
 
+# 網站的固定輸出位置。Cloudflare Pages 盯著這個目錄，發布後自動更新，
+# 不需要另外跑部署指令。
+SITE_PATH = "site/index.html"
+
 SECTIONS_FOR_TREND = ["本期重點", "問題與需要協助"]
 
 
@@ -191,8 +195,14 @@ def render_site(reports: list[Report]) -> str:
 
 
 def report_path(label: str) -> str:
+    """每期報告原稿的存檔位置。這是資料，每期各自保留。"""
     return f"{PUBLISHED_ROOT}/{label}/report.md"
 
 
-def site_path(label: str) -> str:
-    return f"{PUBLISHED_ROOT}/{label}/index.html"
+def site_path() -> str:
+    """網站的固定位置，每次發布覆蓋。
+
+    網頁本身已經包含歷史各期，所以不需要每期各存一份 HTML。
+    固定在同一個路徑，Cloudflare Pages 才能盯著這個目錄自動更新。
+    """
+    return SITE_PATH
