@@ -1,0 +1,12 @@
+{
+  "name": "biweekly-report",
+  "main": "worker.js",
+  "compatibility_date": "2026-08-05",
+  "assets": {
+    "directory": "./site",
+    "binding": "ASSETS",
+    // 必須為 true：否則 Cloudflare 會直接送出靜態檔案而不執行 worker.js，
+    // 密碼保護就完全失效，而且從外面看不出來。
+    "run_worker_first": true
+  }
+}
