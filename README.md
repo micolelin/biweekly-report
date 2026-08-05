@@ -65,6 +65,46 @@ ANTHROPIC_API_KEY = "..."
 
 Streamlit Community Cloud 免費方案的 app **12 小時沒有流量就會休眠**。兩週用一次的話，每次點進去要等 30 秒到 1 分鐘喚醒。
 
+## 報告頁的存取保護
+
+報告頁部署在 Cloudflare Workers，由 `worker.js` 以 HTTP Basic 認證擋下未授權存取。主管點連結會跳出瀏覽器內建的帳號密碼框，**不需要註冊任何帳號**。
+
+沒有採用 Cloudflare Zero Trust Access 的原因：它的免費方案要求綁定付款方式（實測確認，即使顯示 $0/month）。
+
+### 設定帳號
+
+在 Cloudflare 儀表板 → 該 Worker → Settings → Variables and Secrets，新增 **Secret**：
+
+單一組（最簡單）：
+
+| 名稱 | 值 |
+|---|---|
+| `REPORT_USER` | 帳號 |
+| `REPORT_PASSWORD` | 密碼 |
+
+多組（要給不同人不同帳號時用）：
+
+| 名稱 | 值 |
+|---|---|
+| `REPORT_ACCOUNTS` | 一行一組，格式 `帳號:密碼` |
+
+```
+manager:主管的密碼
+colleague:同事的密碼
+```
+
+兩種可以並存。空行與 `#` 開頭的行會被略過。密碼本身可以含冒號（只切第一個）。
+
+**分開發帳號的好處**：要停用某個人時，把那一行刪掉就好，其他人不受影響、也不用通知他們改密碼。
+
+密碼請用英數字 —— Basic 認證對非 ASCII 字元的處理各家瀏覽器不一致。
+
+### 兩個關鍵安全設計
+
+**`wrangler.jsonc` 的 `assets.run_worker_first` 必須是 `true`。** 否則 Cloudflare 會直接送出靜態檔案而根本不執行 `worker.js`，密碼形同虛設 —— 而且從外面完全看不出來。
+
+**一組帳號都沒設時，一律拒絕所有人。** 相反的做法（沒設就放行）會讓人以為有保護，實際上整份報告公開在網路上。打不開是安全的失敗，看得到才是災難。
+
 ## 彙整引擎
 
 支援三個供應商，可在「產生報告」分頁直接切換：
