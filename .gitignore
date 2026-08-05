@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# 憑證絕不進版控
+.streamlit/secrets.toml
+.env
+
+# 執行時的資料由程式透過 GitHub API 直接寫進本 repo，
+# 本機工作目錄不該留副本
+data/
