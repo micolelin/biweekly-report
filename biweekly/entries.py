@@ -79,3 +79,12 @@ def attachment_path(timestamp: datetime, filename: str) -> str:
     """附件在 repo 中的路徑。檔名只取最後一段，避免路徑穿越。"""
     safe_name = _safe_segment(filename)
     return f"{ATTACHMENTS_ROOT}/{_month(timestamp)}/{_stamp(timestamp)}_{safe_name}"
+
+
+def all_paths(entry: Entry) -> list[str]:
+    """一筆記錄佔用的全部檔案：記錄本身，加上它的所有附件。
+
+    刪除記錄時要用這個，不能只刪 .md —— 否則附件會變成沒有任何記錄指向的
+    孤兒檔案，永遠留在 repo 裡，既認不出是誰的也不敢刪。
+    """
+    return [entry_path(entry), *entry.attachments]

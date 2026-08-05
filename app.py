@@ -164,14 +164,21 @@ with tab_list:
                 st.caption(f"附件：{attachment}")
             if st.button("刪除這筆", key=f"delete_{entries_mod.entry_path(entry)}"):
                 try:
+                    # 連同附件一起刪，否則附件會變成沒人指向的孤兒檔案
                     store.delete_files(
-                        [entries_mod.entry_path(entry)], "刪除一筆記錄"
+                        entries_mod.all_paths(entry),
+                        f"刪除一筆記錄（{entry.category}）",
                     )
                 except Exception as exc:  # noqa: BLE001
                     show_error("刪除失敗", exc)
                 else:
                     st.session_state.pop("period_entries", None)
-                    st.success("已刪除，請按「重新載入」。")
+                    removed = len(entry.attachments)
+                    st.success(
+                        f"已刪除記錄與 {removed} 個附件，請按「重新載入」。"
+                        if removed
+                        else "已刪除，請按「重新載入」。"
+                    )
 
 
 # --- 產生報告 -------------------------------------------------------------

@@ -88,3 +88,22 @@ def test_記錄類別中的路徑分隔符要被清掉():
     )
     path = entries.entry_path(entry)
     assert path == "data/entries/2026-08/2026-08-04T153000_壞類別.md"
+
+
+def test_一筆記錄的所有檔案含本身與附件():
+    entry = _sample_entry()
+    paths = entries.all_paths(entry)
+    assert entries.entry_path(entry) in paths
+    assert "data/attachments/2026-08/tco.pptx" in paths
+    assert len(paths) == 2
+
+
+def test_沒有附件時只回傳記錄本身():
+    entry = _sample_entry()
+    entry.attachments = []
+    assert entries.all_paths(entry) == [entries.entry_path(entry)]
+
+
+def test_記錄本身排在附件之前():
+    entry = _sample_entry()
+    assert entries.all_paths(entry)[0] == entries.entry_path(entry)
