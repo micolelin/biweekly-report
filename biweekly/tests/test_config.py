@@ -9,7 +9,7 @@ def test_設定檔不存在時回傳預設值():
     store = Mock()
     store.read_file.side_effect = FileNotFoundError
     data = config.load_config(store)
-    assert data["categories"] == ["Progress", "Blocker", "Market Intel", "To-do"]
+    assert data["categories"] == ["Insights", "Progress", "NPI"]
     assert data["manager_email"] == ""
 
 
