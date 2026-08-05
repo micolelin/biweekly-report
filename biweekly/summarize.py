@@ -23,30 +23,42 @@ MAX_TOKENS = 4000
 
 ENV_HINT = "請確認 /Users/admin/Documents/m-agent/.env 已設定並載入。"
 
-SYSTEM_PROMPT = """你是協助整理雙週工作報告的助手。
+EMPTY_SECTION = "None this period"
 
-你會收到一段期間內的零散工作記錄，任務是把它們整理成結構化的報告草稿。
+SYSTEM_PROMPT = """You organise biweekly work reports.
 
-輸出格式固定為以下四個段落，用 Markdown 二級標題：
+You will receive a set of raw work notes covering one reporting period. Your
+job is to organise them into a structured draft report.
 
-## 本期重點
-（最多 3 條，每條一句話，挑最值得主管知道的）
+The notes may be written in Chinese, English, or a mix. **Your output must be
+entirely in English**, regardless of the language of the notes.
 
-## 進度細節
-（依主題歸納，不要照時間流水帳）
+Use exactly these four sections, as Markdown level-2 headings:
 
-## 問題與需要協助
-（明確寫出卡在哪裡、需要主管做什麼決定或提供什麼資源）
+## Highlights
+(At most 3 bullets, one sentence each. Pick what the manager most needs to know.)
 
-## 下期計畫
+## Progress
+(Group by topic. Do not produce a chronological log.)
 
-嚴格規則：
+## Blockers & Support Needed
+(State plainly what is stuck, and what decision or resource is needed from the
+manager.)
 
-1. 你**不得**加入原始記錄中不存在的任何資訊。不得推測、不得補充背景、不得美化成果。
-2. 每一句話都必須能對應回某一筆原始記錄。
-3. 若某個段落沒有足夠素材，就寫「本期無」，**不得**自行填充內容。
-4. 保留原始記錄中的具體數字、公司名、產品名，不要改寫成模糊的說法。
-5. 全文使用繁體中文。中文與英文或數字之間加一個半形空格。
+## Next Period
+
+Strict rules:
+
+1. You **must not** add any information that is not present in the raw notes.
+   Do not speculate, do not supply background, do not embellish results.
+2. Every sentence must be traceable to a specific raw note.
+3. If a section has no supporting material, write exactly "None this period".
+   **Do not** invent content to fill it.
+4. Preserve concrete figures, company names and product names exactly as they
+   appear in the notes. Do not soften them into vague phrasing.
+5. Translate faithfully. When a note is in Chinese, render its meaning in
+   English without adding interpretation. Keep proper nouns and product codes
+   in their original form.
 """
 
 
@@ -76,15 +88,15 @@ def collect_period_entries(store, start: date, end: date) -> list[entries_mod.En
 def build_prompt(items: list[entries_mod.Entry], start: date, end: date) -> str:
     """把記錄組成送給 Claude 的訊息。這是純函式，方便完整測試。"""
     lines = [
-        f"報告期間：{start.isoformat()} 至 {end.isoformat()}",
+        f"Reporting period: {start.isoformat()} to {end.isoformat()}",
         "",
-        f"以下是這段期間的工作記錄，共 {len(items)} 筆：",
+        f"Raw work notes for this period ({len(items)} in total):",
         "",
     ]
     for item in items:
         lines.append(
             f"- [{item.timestamp.strftime('%Y-%m-%d')}]"
-            f"[{item.category}][來源：{item.source}] {item.body}"
+            f"[{item.category}][source: {item.source}] {item.body}"
         )
     return "\n".join(lines)
 
@@ -185,10 +197,11 @@ def summarize(
     """
     if not items:
         return (
-            f"## 本期重點\n\n本期無記錄（{start.isoformat()} 至 {end.isoformat()}）。\n\n"
-            "## 進度細節\n\n本期無\n\n"
-            "## 問題與需要協助\n\n本期無\n\n"
-            "## 下期計畫\n\n本期無\n"
+            f"## Highlights\n\nNo notes recorded for "
+            f"{start.isoformat()} – {end.isoformat()}.\n\n"
+            f"## Progress\n\n{EMPTY_SECTION}\n\n"
+            f"## Blockers & Support Needed\n\n{EMPTY_SECTION}\n\n"
+            f"## Next Period\n\n{EMPTY_SECTION}\n"
         )
 
     provider = provider or DEFAULT_PROVIDER

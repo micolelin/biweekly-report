@@ -1,45 +1,45 @@
 from biweekly import render
 
-SAMPLE = """## 本期重點
+SAMPLE = """## Highlights
 
 - 完成 TCO 試算表
 
-## 進度細節
+## Progress
 
 跟客戶開了兩次會。
 
-## 問題與需要協助
+## Blockers & Support Needed
 
 需要主管協助爭取樣品。
 
-## 下期計畫
+## Next Period
 
 送樣。
 """
 
 
 def test_取出指定段落的內容():
-    assert "完成 TCO 試算表" in render.extract_section(SAMPLE, "本期重點")
+    assert "完成 TCO 試算表" in render.extract_section(SAMPLE, "Highlights")
 
 
 def test_取出的段落不含下一個段落的內容():
-    section = render.extract_section(SAMPLE, "本期重點")
+    section = render.extract_section(SAMPLE, "Highlights")
     assert "跟客戶開了兩次會" not in section
 
 
 def test_取出最後一個段落也正常():
-    assert "送樣" in render.extract_section(SAMPLE, "下期計畫")
+    assert "送樣" in render.extract_section(SAMPLE, "Next Period")
 
 
 def test_段落不存在時回傳空字串():
-    assert render.extract_section(SAMPLE, "不存在的段落") == ""
+    assert render.extract_section(SAMPLE, "No Such Section") == ""
 
 
 def test_網頁含三個分頁():
     html = render.render_site([render.Report(label="2026-08-14", markdown=SAMPLE)])
-    assert "本期" in html
-    assert "歷史" in html
-    assert "趨勢對照" in html
+    assert "Current" in html
+    assert "History" in html
+    assert "Trends" in html
 
 
 def test_網頁把_Markdown_轉成_HTML():
@@ -80,19 +80,19 @@ def test_趨勢對照只取重點與問題兩段():
 
 
 def test_趨勢對照多期並列時各期的重點與問題都在():
-    sample_2 = """## 本期重點
+    sample_2 = """## Highlights
 
 - 完成客戶簡報
 
-## 進度細節
+## Progress
 
 內部對齊了規格。
 
-## 問題與需要協助
+## Blockers & Support Needed
 
 需要法務協助審合約。
 
-## 下期計畫
+## Next Period
 
 簽約。
 """
@@ -112,7 +112,7 @@ def test_趨勢對照多期並列時各期的重點與問題都在():
 
 def test_沒有任何報告時也能產生網頁不會炸():
     html = render.render_site([])
-    assert "尚無報告" in html
+    assert "No reports yet" in html
 
 
 def test_報告與網頁的儲存路徑():
@@ -122,7 +122,7 @@ def test_報告與網頁的儲存路徑():
 
 
 def test_內容中的_HTML_標籤不會被當成標記執行():
-    danger = render.Report(label="2026-08-14", markdown="## 本期重點\n\n<script>x</script>\n")
+    danger = render.Report(label="2026-08-14", markdown="## Highlights\n\n<script>x</script>\n")
     html = render.render_site([danger])
     assert "<script>x</script>" not in html
 
@@ -139,8 +139,8 @@ def test_趨勢表格的內容格帶有欄位名稱標籤():
     reports = [render.Report(label="2026-08-14", markdown=SAMPLE)]
     html = render.render_site(reports)
     trend_block = _trend_block(html)
-    assert 'data-label="本期重點"' in trend_block
-    assert 'data-label="問題與需要協助"' in trend_block
+    assert 'data-label="Highlights"' in trend_block
+    assert 'data-label="Blockers &amp; Support Needed"' in trend_block
 
 
 def test_趨勢表格的期別格不帶標籤():

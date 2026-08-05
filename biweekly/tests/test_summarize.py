@@ -43,12 +43,12 @@ def test_prompt_標示每筆記錄的類別與日期():
 
 
 def test_系統提示明確禁止捏造內容():
-    assert "不得" in summarize.SYSTEM_PROMPT
-    assert "本期無" in summarize.SYSTEM_PROMPT
+    assert "must not" in summarize.SYSTEM_PROMPT
+    assert "None this period" in summarize.SYSTEM_PROMPT
 
 
 def test_系統提示要求四個固定段落():
-    for section in ["本期重點", "進度細節", "問題與需要協助", "下期計畫"]:
+    for section in ["Highlights", "Progress", "Blockers & Support Needed", "Next Period"]:
         assert section in summarize.SYSTEM_PROMPT
 
 
@@ -135,13 +135,13 @@ def test_沒有任何記錄時不呼叫_API():
     client = Mock()
     text = summarize.summarize([], date(2026, 8, 1), date(2026, 8, 14), client=client)
     assert client.messages.create.call_count == 0
-    assert "本期無記錄" in text
+    assert "No notes recorded" in text
 
 
 def test_呼叫_API_時帶上系統提示與模型():
     client = Mock()
     client.messages.create.return_value = Mock(
-        content=[Mock(text="## 本期重點\n- 完成試算")]
+        content=[Mock(text="## Highlights\n- Finished the estimate")]
     )
     text = summarize.summarize(
         [_entry(4, "進度", "完成 TCO 試算")],
@@ -153,7 +153,7 @@ def test_呼叫_API_時帶上系統提示與模型():
     kwargs = client.messages.create.call_args.kwargs
     assert kwargs["model"] == summarize.PROVIDER_MODELS["anthropic"]
     assert kwargs["system"] == summarize.SYSTEM_PROMPT
-    assert text == "## 本期重點\n- 完成試算"
+    assert text == "## Highlights\n- Finished the estimate"
 
 
 def test_預設供應商為_gemini():
@@ -322,4 +322,4 @@ def test_沒有記錄時三個供應商都不會呼叫_API():
         )
         assert session.calls == []
         assert client.messages.create.call_count == 0
-        assert "本期無記錄" in text
+        assert "No notes recorded" in text

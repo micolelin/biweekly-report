@@ -6,7 +6,7 @@ CONFIG_PATH = "data/config.json"
 
 DEFAULT_CONFIG = {
     # 記錄類別，使用者可自行增修，不需改程式
-    "categories": ["進度", "問題", "市場情報", "待辦"],
+    "categories": ["Progress", "Blocker", "Market Intel", "To-do"],
     # 第一期的結束日（建議選一個週五），之後每 14 天推算一期
     "anchor_date": "2026-08-14",
     # 主管 email 為選填。留空時 Cloudflare Access 白名單只有使用者本人，系統照常可用。

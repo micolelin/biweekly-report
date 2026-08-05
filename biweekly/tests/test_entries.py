@@ -11,7 +11,7 @@ def _sample_entry():
         timestamp=datetime(2026, 8, 4, 15, 30, tzinfo=TAIPEI),
         category="進度",
         body="完成 TCO 試算表，寄給客戶確認。",
-        source="自己",
+        source="Me",
         include_in_report=True,
         attachments=["data/attachments/2026-08/tco.pptx"],
     )
@@ -50,7 +50,7 @@ def test_缺少選填欄位時套用預設值():
         "記得追進度\n"
     )
     entry = entries.from_markdown(text)
-    assert entry.source == "自己"
+    assert entry.source == "Me"
     assert entry.include_in_report is True
     assert entry.attachments == []
     assert entry.body == "記得追進度"

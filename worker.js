@@ -13,12 +13,12 @@
  * 而且從外面看不出來，是最危險的那種失效。
  */
 
-const REALM = '雙週工作報告';
+const REALM = 'Biweekly Work Report';
 
 export default {
   async fetch(request, env) {
     if (!isAuthorized(request, env)) {
-      return new Response('需要帳號密碼才能檢視這份報告。\n', {
+      return new Response('Authentication required to view this report.\n', {
         status: 401,
         headers: {
           'WWW-Authenticate': `Basic realm="${REALM}", charset="UTF-8"`,

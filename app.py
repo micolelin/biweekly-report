@@ -29,7 +29,7 @@ from biweekly import (  # noqa: E402
     summarize as summarize_mod,
 )
 
-st.set_page_config(page_title="雙週報告工作台", page_icon="📝", layout="wide")
+st.set_page_config(page_title="Biweekly Report Studio", page_icon="📝", layout="wide")
 
 
 @st.cache_resource
@@ -43,17 +43,17 @@ def load_settings(store):
 
 def show_error(context: str, exc: Exception) -> None:
     """把錯誤明確顯示出來，絕不靜默吞掉。"""
-    st.error(f"{context}：{exc}")
+    st.error(f"{context}: {exc}")
 
 
 try:
     store = get_store()
     settings = load_settings(store)
 except Exception as exc:  # noqa: BLE001
-    st.error(f"無法連線 GitHub：{exc}")
+    st.error(f"Cannot reach GitHub: {exc}")
     st.info(
-        "本系統資料全部存在雲端，離線時無法使用。"
-        "請確認網路連線，以及 .env 中的 GITHUB_TOKEN 已載入。"
+        "All data lives in the cloud, so this app cannot run offline. "
+        "Check your connection and that GITHUB_TOKEN is available."
     )
     st.stop()
 
@@ -62,17 +62,17 @@ today = periods.taipei_today()
 period_start, period_end = periods.period_range(anchor, today)
 period_label = periods.period_label(period_end)
 
-st.title("📝 雙週報告工作台")
-st.caption(f"本期：{period_start.isoformat()} 至 {period_end.isoformat()}")
+st.title("📝 Biweekly Report Studio")
+st.caption(f"Current period: {period_start.isoformat()} – {period_end.isoformat()}")
 
 tab_note, tab_list, tab_report, tab_history = st.tabs(
-    ["隨手記", "本期清單", "產生報告", "歷史"]
+    ["Quick Note", "This Period", "Generate Report", "History"]
 )
 
 
 # --- 隨手記 ---------------------------------------------------------------
 with tab_note:
-    st.subheader("隨手記一筆")
+    st.subheader("Add a note")
 
     # 顯示上一輪儲存成功的訊息（rerun 會沖掉當下的 st.success，所以用 session_state 帶過來）
     flash = st.session_state.pop("note_flash", None)
@@ -84,20 +84,20 @@ with tab_note:
     nonce = st.session_state.get("note_nonce", 0)
 
     category = st.selectbox(
-        "類別", settings["categories"], key=f"note_category_{nonce}"
+        "Category", settings["categories"], key=f"note_category_{nonce}"
     )
-    source = st.text_input("來源", value="自己", key=f"note_source_{nonce}")
-    body = st.text_area("內容", height=180, key=f"note_body_{nonce}")
+    source = st.text_input("Source", value="Me", key=f"note_source_{nonce}")
+    body = st.text_area("Note", height=180, key=f"note_body_{nonce}")
     uploads = st.file_uploader(
-        "附件（可多選，單檔上限 100 MB）",
+        "Attachments (multiple allowed, 100 MB per file)",
         accept_multiple_files=True,
         key=f"note_uploads_{nonce}",
     )
-    include = st.checkbox("納入報告", value=True, key=f"note_include_{nonce}")
+    include = st.checkbox("Include in report", value=True, key=f"note_include_{nonce}")
 
-    if st.button("儲存", type="primary", key=f"note_save_{nonce}"):
+    if st.button("Save", type="primary", key=f"note_save_{nonce}"):
         if not body.strip():
-            st.warning("內容是空的，沒有儲存。")
+            st.warning("The note is empty — nothing was saved.")
         else:
             timestamp = datetime.now(periods.TAIPEI)
             files = {}
@@ -111,7 +111,7 @@ with tab_note:
                 timestamp=timestamp,
                 category=category,
                 body=body,
-                source=source or "自己",
+                source=source or "Me",
                 include_in_report=include,
                 attachments=attachment_paths,
             )
@@ -120,16 +120,16 @@ with tab_note:
             ).encode("utf-8")
 
             try:
-                store.commit_files(files, f"記錄（{category}）：{body.strip()[:30]}")
+                store.commit_files(files, f"note ({category}): {body.strip()[:30]}")
             except github_store.FileTooLargeError as exc:
                 # 內容留在輸入框，使用者不會白打；nonce 不動，widget 保持原樣
-                show_error("附件太大，未儲存", exc)
+                show_error("Attachment too large — nothing was saved", exc)
             except Exception as exc:  # noqa: BLE001
-                show_error("儲存失敗，內容仍保留在上方輸入框", exc)
+                show_error("Save failed — your text is still in the box above", exc)
             else:
                 # 成功：訊息存進 session_state、序號 +1，重跑一次讓 widget 全部換新
                 st.session_state["note_flash"] = (
-                    f"已儲存，附件 {len(attachment_paths)} 個。"
+                    f"Saved with {len(attachment_paths)} attachment(s)."
                 )
                 st.session_state["note_nonce"] = nonce + 1
                 st.rerun()
@@ -137,9 +137,9 @@ with tab_note:
 
 # --- 本期清單 -------------------------------------------------------------
 with tab_list:
-    st.subheader("本期記錄")
+    st.subheader("Entries this period")
 
-    if st.button("重新載入", key="list_reload"):
+    if st.button("Reload", key="list_reload"):
         st.session_state.pop("period_entries", None)
 
     if "period_entries" not in st.session_state:
@@ -148,42 +148,42 @@ with tab_list:
                 store, period_start, period_end
             )
         except Exception as exc:  # noqa: BLE001
-            show_error("載入記錄失敗", exc)
+            show_error("Could not load entries", exc)
             st.session_state["period_entries"] = []
 
     period_entries = st.session_state["period_entries"]
-    st.caption(f"共 {len(period_entries)} 筆（已排除標記為不進報告的）")
+    st.caption(f"{len(period_entries)} entries (excluding those marked not for report)")
 
     for entry in period_entries:
         with st.expander(
-            f"{entry.timestamp.strftime('%m-%d %H:%M')}｜{entry.category}｜{entry.body[:30]}"
+            f"{entry.timestamp.strftime('%m-%d %H:%M')} · {entry.category} · {entry.body[:30]}"
         ):
             st.write(entry.body)
-            st.caption(f"來源：{entry.source}")
+            st.caption(f"Source: {entry.source}")
             for attachment in entry.attachments:
-                st.caption(f"附件：{attachment}")
-            if st.button("刪除這筆", key=f"delete_{entries_mod.entry_path(entry)}"):
+                st.caption(f"Attachment: {attachment}")
+            if st.button("Delete this entry", key=f"delete_{entries_mod.entry_path(entry)}"):
                 try:
                     # 連同附件一起刪，否則附件會變成沒人指向的孤兒檔案
                     store.delete_files(
                         entries_mod.all_paths(entry),
-                        f"刪除一筆記錄（{entry.category}）",
+                        f"delete note ({entry.category})",
                     )
                 except Exception as exc:  # noqa: BLE001
-                    show_error("刪除失敗", exc)
+                    show_error("Delete failed", exc)
                 else:
                     st.session_state.pop("period_entries", None)
                     removed = len(entry.attachments)
                     st.success(
-                        f"已刪除記錄與 {removed} 個附件，請按「重新載入」。"
+                        f"Deleted the note and {removed} attachment(s). Press Reload."
                         if removed
-                        else "已刪除，請按「重新載入」。"
+                        else "Deleted. Press Reload."
                     )
 
 
 # --- 產生報告 -------------------------------------------------------------
 with tab_report:
-    st.subheader(f"產生 {period_label} 這期的報告")
+    st.subheader(f"Generate the report for {period_label}")
 
     provider_options = list(summarize_mod.PROVIDER_MODELS.keys())
     configured_provider = settings.get(
@@ -192,13 +192,13 @@ with tab_report:
     if configured_provider not in provider_options:
         configured_provider = summarize_mod.DEFAULT_PROVIDER
     provider = st.selectbox(
-        "彙整引擎",
+        "Summarizer",
         provider_options,
         index=provider_options.index(configured_provider),
         key="report_provider",
     )
 
-    if st.button("整理成草稿", key="report_generate"):
+    if st.button("Generate draft", key="report_generate"):
         try:
             items = summarize_mod.collect_period_entries(
                 store, period_start, period_end
@@ -207,24 +207,24 @@ with tab_report:
                 items, period_start, period_end, provider=provider
             )
         except Exception as exc:  # noqa: BLE001
-            show_error("彙整失敗，你仍可在下方手動撰寫", exc)
+            show_error("Summarising failed — you can still write the draft manually below", exc)
             st.session_state.setdefault("draft", "")
 
     draft = st.text_area(
-        "報告草稿（可直接編修）",
+        "Draft (edit freely)",
         value=st.session_state.get("draft", ""),
         height=420,
         key="draft_editor",
     )
 
-    if st.button("儲存並發布", type="primary", key="report_publish"):
+    if st.button("Save and publish", type="primary", key="report_publish"):
         if not draft.strip():
-            st.warning("草稿是空的，沒有發布。")
+            st.warning("The draft is empty — nothing was published.")
         else:
             try:
                 store.commit_files(
                     {render.report_path(period_label): draft.encode("utf-8")},
-                    f"報告：{period_label}",
+                    f"report: {period_label}",
                 )
                 labels = sorted(
                     set(store.list_subdirs(render.PUBLISHED_ROOT)) | {period_label},
@@ -244,45 +244,51 @@ with tab_report:
                 site_html = render.render_site(reports)
                 store.commit_files(
                     {render.site_path(): site_html.encode("utf-8")},
-                    f"網頁：{period_label}",
+                    f"site: {period_label}",
                 )
             except Exception as exc:  # noqa: BLE001
-                show_error("發布失敗", exc)
-                notify.notify_error(f"雙週報告發布失敗（{period_label}）：{exc}")
+                show_error("Publish failed", exc)
+                notify.notify_error(f"Biweekly report publish failed ({period_label}): {exc}")
             else:
-                st.success("已存到 GitHub。接著執行 Task 8 的部署指令推上 Cloudflare。")
+                st.success(
+                    "Saved to GitHub. Cloudflare will refresh the report page "
+                    "automatically in a minute or two."
+                )
 
-                site_url = settings.get("site_url") or "（尚未設定網址）"
-                highlights = render.extract_section(draft, "本期重點")
+                site_url = settings.get("site_url") or "(site URL not configured yet)"
+                # 段落標題必須跟 SECTIONS_FOR_TREND[0] 一致，否則這裡會抓到空字串
+                highlights = render.extract_section(
+                    draft, render.SECTIONS_FOR_TREND[0]
+                )
                 st.text_area(
-                    "複製這段貼進 Outlook 寄給主管",
+                    "Copy this into Outlook",
                     value=(
-                        f"主管好，{period_label} 這期的工作報告如下：\n\n"
+                        f"Hi,\n\nHere is the work report for {period_label}.\n\n"
                         f"{highlights}\n\n"
-                        f"完整內容請看：{site_url}\n"
+                        f"Full report: {site_url}\n"
                     ),
                     height=220,
                     key="mail_body",
                 )
                 manager_email = settings.get("manager_email")
                 st.caption(
-                    f"收件者：{manager_email}"
+                    f"Recipient: {manager_email}"
                     if manager_email
-                    else "尚未設定主管 email（選填），可日後填入 data/config.json"
+                    else "Manager email not set (optional) — add it to data/config.json anytime"
                 )
 
 
 # --- 歷史 -----------------------------------------------------------------
 with tab_history:
-    st.subheader("歷史各期")
+    st.subheader("Past periods")
     try:
         labels = sorted(store.list_subdirs(render.PUBLISHED_ROOT), reverse=True)
     except Exception as exc:  # noqa: BLE001
-        show_error("讀取歷史失敗", exc)
+        show_error("Could not read past reports", exc)
         labels = []
 
     if not labels:
-        st.info("尚無已發布的報告。")
+        st.info("No reports published yet.")
     for label in labels:
         with st.expander(label):
             try:

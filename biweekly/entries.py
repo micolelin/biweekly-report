@@ -18,7 +18,7 @@ class Entry:
     timestamp: datetime
     category: str
     body: str
-    source: str = "自己"
+    source: str = "Me"
     include_in_report: bool = True
     attachments: list[str] = field(default_factory=list)
 
@@ -50,7 +50,7 @@ def from_markdown(text: str) -> Entry:
         timestamp=datetime.fromisoformat(str(meta["timestamp"])),
         category=meta["category"],
         body=body.strip(),
-        source=meta.get("source") or "自己",
+        source=meta.get("source") or "Me",
         include_in_report=meta.get("include_in_report", True),
         attachments=list(meta.get("attachments") or []),
     )

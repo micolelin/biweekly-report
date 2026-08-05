@@ -16,7 +16,7 @@ PUBLISHED_ROOT = "data/published"
 # 不需要另外跑部署指令。
 SITE_PATH = "site/index.html"
 
-SECTIONS_FOR_TREND = ["本期重點", "問題與需要協助"]
+SECTIONS_FOR_TREND = ["Highlights", "Blockers & Support Needed"]
 
 
 @dataclass
@@ -44,12 +44,12 @@ def _to_html(markdown_text: str) -> str:
 
 PAGE_TEMPLATE = Template(
     """<!doctype html>
-<html lang="zh-Hant">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex, nofollow">
-<title>雙週工作報告</title>
+<title>Biweekly Work Report</title>
 <style>
   :root { color-scheme: light dark; }
   body {
@@ -107,22 +107,22 @@ PAGE_TEMPLATE = Template(
 </style>
 </head>
 <body>
-<h1>雙週工作報告</h1>
+<h1>Biweekly Work Report</h1>
 {% if reports %}
-<p class="muted">最新一期：{{ reports[0].label }}</p>
+<p class="muted">Latest period: {{ reports[0].label }}</p>
 {% endif %}
 
 <nav>
-  <a href="#current">本期</a>
-  <a href="#history">歷史</a>
-  <a href="#trend">趨勢對照</a>
+  <a href="#current">Current</a>
+  <a href="#history">History</a>
+  <a href="#trend">Trends</a>
 </nav>
 
 <section id="current">
 {% if reports %}
 {{ reports[0].html }}
 {% else %}
-<p>尚無報告。</p>
+<p>No reports yet.</p>
 {% endif %}
 </section>
 
@@ -135,16 +135,16 @@ PAGE_TEMPLATE = Template(
 </div>
 {% endfor %}
 {% else %}
-<p>尚無報告。</p>
+<p>No reports yet.</p>
 {% endif %}
 </section>
 
 <section id="trend">
 {% if trend_rows %}
-<p class="muted">最近數期的重點與待解問題並列，方便看出哪些問題延續。</p>
+<p class="muted">Highlights and open blockers side by side, so recurring issues stand out.</p>
 <table>
   <thead>
-    <tr><th>期別</th>{% for name in section_names %}<th>{{ name }}</th>{% endfor %}</tr>
+    <tr><th>Period</th>{% for name in section_names %}<th>{{ name }}</th>{% endfor %}</tr>
   </thead>
   <tbody>
   {% for row in trend_rows %}
@@ -156,7 +156,7 @@ PAGE_TEMPLATE = Template(
   </tbody>
 </table>
 {% else %}
-<p>尚無報告。</p>
+<p>No reports yet.</p>
 {% endif %}
 </section>
 </body>
@@ -181,6 +181,7 @@ def render_site(reports: list[Report]) -> str:
         {
             "label": html_lib.escape(report.label),
             "cells": [
+                # 用未跳脫的名稱去比對 Markdown 標題，跳脫版只用於輸出
                 _to_html(extract_section(report.markdown, name))
                 for name in SECTIONS_FOR_TREND
             ],
@@ -190,7 +191,8 @@ def render_site(reports: list[Report]) -> str:
     return PAGE_TEMPLATE.render(
         reports=prepared,
         trend_rows=trend_rows,
-        section_names=SECTIONS_FOR_TREND,
+        # 模板是 autoescape=False，段落名稱含 & 之類的字元時要自己跳脫
+        section_names=[html_lib.escape(name) for name in SECTIONS_FOR_TREND],
     )
 
 
