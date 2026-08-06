@@ -20,3 +20,29 @@ def test_帶帳密時_version_回傳整數版本號(api):
 def test_未知的_api_路徑回_404(api):
     response = api("GET", "/api/不存在的端點")
     assert response.status_code == 404
+
+
+def test_取得表格時回傳資料與_sha(api):
+    response = api("GET", "/api/table?slot=test")
+    assert response.status_code == 200
+
+    body = response.json()
+    assert body["data"]["v"] == 1
+    assert isinstance(body["data"]["rows"], list)
+    assert "sha" in body
+
+
+def test_測試槽的檔案不存在時回空表而非錯誤(api):
+    """第一次使用時沒有資料檔，這是正常狀況不是錯誤。"""
+    api("DELETE", "/api/table?slot=test")
+
+    response = api("GET", "/api/table?slot=test")
+    assert response.status_code == 200
+    assert response.json()["data"]["rows"] == []
+    assert response.json()["sha"] is None
+
+
+def test_不合法的_slot_被拒絕(api):
+    """slot 直接對應檔名，不擋就等於讓外部指定要讀哪個檔。"""
+    response = api("GET", "/api/table?slot=../../etc/passwd")
+    assert response.status_code == 400

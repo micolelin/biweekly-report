@@ -16,7 +16,7 @@
 const REALM = 'Biweekly Work Report';
 
 /** 每次改動 worker.js 都要加一。整合測試用它確認新版本已經部署完成。 */
-const API_VERSION = 1;
+const API_VERSION = 2;
 
 export default {
   async fetch(request, env) {
@@ -67,7 +67,164 @@ async function handleApi(request, env, url) {
   if (url.pathname === '/api/version') {
     return jsonResponse({ version: API_VERSION });
   }
+
+  if (url.pathname === '/api/table') {
+    // 缺任何一個 Secret 都直接拒絕。用預設值硬跑會在「看起來正常」的狀態下
+    // 產生解不開的資料，比直接壞掉更難發現。
+    if (!env.GH_TOKEN) return jsonResponse({ error: '伺服器未設定 GH_TOKEN' }, 500);
+    if (!env.TABLE_KEY) return jsonResponse({ error: '伺服器未設定 TABLE_KEY' }, 500);
+
+    const slot = slotName(url);
+    const path = SLOT_FILES[slot];
+    if (!path) return jsonResponse({ error: `不合法的 slot：${slot}` }, 400);
+
+    if (request.method === 'GET') return handleGetTable(env, path);
+    return jsonResponse({ error: `不支援的方法：${request.method}` }, 405);
+  }
+
   return jsonResponse({ error: `沒有這個端點：${url.pathname}` }, 404);
+}
+
+function emptyTable() {
+  return { v: 1, updated: null, rows: [] };
+}
+
+async function handleGetTable(env, path) {
+  let file;
+  try {
+    file = await readFile(env, path);
+  } catch (error) {
+    return jsonResponse({ error: String(error.message) }, 502);
+  }
+
+  if (file.text === null) {
+    return jsonResponse({ data: emptyTable(), sha: null });
+  }
+
+  try {
+    const data = await decryptJson(JSON.parse(file.text), env.TABLE_KEY);
+    return jsonResponse({ data, sha: file.sha });
+  } catch (error) {
+    // 絕不能在這裡回空表。回空表會讓人以為資料被清掉，接著一存就真的清掉了。
+    return jsonResponse(
+      { error: `解密失敗，資料未被更動。請確認 TABLE_KEY 是否正確：${error.message}` },
+      500,
+    );
+  }
+}
+
+// ===== 加解密 =====
+//
+// 規格必須與 m-agent/codelist/dashboard/crypto.py 完全一致，
+// 這樣同一份密文兩邊都解得開。改動任一邊都要一起改。
+
+const CRYPTO_VERSION = 1;
+const KDF_NAME = 'PBKDF2-SHA256';
+const KDF_ITERATIONS = 300000;
+const SALT_BYTES = 16;
+const IV_BYTES = 12;
+
+function toBase64(bytes) {
+  let binary = '';
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
+function fromBase64(text) {
+  const binary = atob(text);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function deriveKey(passphrase, salt, iterations) {
+  const material = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(passphrase),
+    'PBKDF2',
+    false,
+    ['deriveKey'],
+  );
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt, iterations, hash: 'SHA-256' },
+    material,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt'],
+  );
+}
+
+async function encryptJson(payload, passphrase) {
+  // salt 與 iv 每次都重新產生。重複使用 iv 會讓 AES-GCM 的保護整個失效。
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_BYTES));
+  const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
+  const key = await deriveKey(passphrase, salt, KDF_ITERATIONS);
+  const plaintext = new TextEncoder().encode(JSON.stringify(payload));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+
+  return {
+    v: CRYPTO_VERSION,
+    kdf: KDF_NAME,
+    iter: KDF_ITERATIONS,
+    salt: toBase64(salt),
+    iv: toBase64(iv),
+    ct: toBase64(new Uint8Array(ciphertext)),
+  };
+}
+
+async function decryptJson(envelope, passphrase) {
+  if (envelope.v !== CRYPTO_VERSION) {
+    throw new Error(`不支援的封包版本：${envelope.v}`);
+  }
+  const key = await deriveKey(passphrase, fromBase64(envelope.salt), envelope.iter);
+  const plaintext = await crypto.subtle.decrypt(
+    { name: 'AES-GCM', iv: fromBase64(envelope.iv) },
+    key,
+    fromBase64(envelope.ct),
+  );
+  return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+// ===== GitHub 儲存 =====
+
+const REPO = 'micolelin/biweekly-report';
+const DATA_BRANCH = 'data';
+// slot 直接參與檔名，所以用白名單而不是過濾字元 —— 白名單不會有漏網之魚
+const SLOT_FILES = {
+  main: 'table.enc.json',
+  test: 'table.test.enc.json',
+};
+
+function slotName(url) {
+  return url.searchParams.get('slot') || 'main';
+}
+
+function githubHeaders(env) {
+  return {
+    Authorization: `Bearer ${env.GH_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    // GitHub API 沒有 User-Agent 會直接拒絕
+    'User-Agent': 'biweekly-report-worker',
+    'Content-Type': 'application/json',
+  };
+}
+
+async function readFile(env, path) {
+  const response = await fetch(
+    `https://api.github.com/repos/${REPO}/contents/${path}?ref=${DATA_BRANCH}`,
+    { headers: githubHeaders(env) },
+  );
+
+  // 404 代表還沒有這個檔案，是第一次使用的正常狀況，不是錯誤
+  if (response.status === 404) return { text: null, sha: null };
+  if (!response.ok) {
+    throw new Error(`讀取 GitHub 失敗（HTTP ${response.status}）：${await response.text()}`);
+  }
+
+  const body = await response.json();
+  // GitHub 回的 base64 含換行，atob 不接受，要先清掉
+  const raw = fromBase64(body.content.replace(/\n/g, ''));
+  return { text: new TextDecoder().decode(raw), sha: body.sha };
 }
 
 /**
