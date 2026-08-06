@@ -184,7 +184,13 @@ async function handlePutTable(request, env, path) {
 
 const CRYPTO_VERSION = 1;
 const KDF_NAME = 'PBKDF2-SHA256';
-const KDF_ITERATIONS = 300000;
+// Cloudflare Workers 的 PBKDF2 實作硬性限制最多 100000 次疊代，
+// 超過會直接丟錯（'Pbkdf2 failed: iteration counts above 100000 are not
+// supported'），不是這裡能調的效能問題，是平台上限。
+// m-agent/codelist/dashboard/crypto.py 的預設仍是 300000，兩邊不需要一致：
+// 解密時雙方都是讀封包裡的 iter 欄位重新算 key（不是各自的常數），
+// 所以只要封包忠實記錄加密當下用的疊代次數，兩邊互解就不受影響。
+const KDF_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
 
