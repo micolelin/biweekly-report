@@ -15,6 +15,9 @@
 
 const REALM = 'Biweekly Work Report';
 
+/** 每次改動 worker.js 都要加一。整合測試用它確認新版本已經部署完成。 */
+const API_VERSION = 1;
+
 export default {
   async fetch(request, env) {
     if (!isAuthorized(request, env)) {
@@ -26,6 +29,12 @@ export default {
           'Cache-Control': 'no-store',
         },
       });
+    }
+
+    // 認證通過才進路由，API 因此與頁面共用同一道密碼保護
+    const url = new URL(request.url);
+    if (url.pathname.startsWith('/api/')) {
+      return handleApi(request, env, url);
     }
 
     const response = await env.ASSETS.fetch(request);
@@ -40,6 +49,26 @@ export default {
     });
   },
 };
+
+// ===== API 路由 =====
+
+/** 統一的 JSON 回應格式，所有 API 回應都經過這裡。 */
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Cache-Control': 'no-store',
+    },
+  });
+}
+
+async function handleApi(request, env, url) {
+  if (url.pathname === '/api/version') {
+    return jsonResponse({ version: API_VERSION });
+  }
+  return jsonResponse({ error: `沒有這個端點：${url.pathname}` }, 404);
+}
 
 /**
  * 讀出所有可用的帳號密碼。
