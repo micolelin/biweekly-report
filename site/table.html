@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>專案追蹤表</title>
+<style>
+  :root {
+    --bg: #f0f2f5; --fg: #1a1a2e; --card: #ffffff; --muted: #6b7280;
+    --line: #e5e7eb; --accent: #1e40af; --danger: #dc2626; --ok: #16a34a;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f172a; --fg: #e2e8f0; --card: #1e293b; --muted: #94a3b8;
+      --line: #334155; --accent: #60a5fa; --danger: #f87171; --ok: #4ade80;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: var(--bg); color: var(--fg);
+    /* 為底部固定狀態列留位置，否則最後一列會被蓋住 */
+    padding-bottom: 5rem;
+  }
+  header {
+    background: var(--card); border-bottom: 1px solid var(--line);
+    padding: 0.75rem 1rem; position: sticky; top: 0; z-index: 10;
+  }
+  header h1 { font-size: 1.05rem; font-weight: 700; }
+  main { padding: 1rem; max-width: 80rem; margin: 0 auto; }
+
+  table { width: 100%; border-collapse: collapse; background: var(--card); }
+  th, td { border: 1px solid var(--line); padding: 0.5rem; vertical-align: top; text-align: left; }
+  th { font-size: 0.85rem; color: var(--muted); font-weight: 600; }
+  textarea {
+    width: 100%; border: none; background: transparent; color: inherit;
+    font: inherit; resize: none; overflow: hidden; min-height: 2.5rem;
+  }
+  textarea:focus { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .row-tools { width: 3rem; text-align: center; }
+  .del {
+    background: none; border: none; color: var(--muted);
+    font-size: 1.1rem; cursor: pointer; padding: 0.25rem 0.5rem;
+  }
+  .del:hover { color: var(--danger); }
+
+  /* 手機：四欄文字擠進一個螢幕必然不可讀，改成一列一張卡片 */
+  @media (max-width: 40rem) {
+    thead { display: none; }
+    table, tbody, tr, td { display: block; width: 100%; }
+    tr {
+      background: var(--card); border: 1px solid var(--line);
+      border-radius: 0.75rem; margin-bottom: 1rem; padding: 0.5rem;
+    }
+    td { border: none; border-bottom: 1px solid var(--line); padding: 0.5rem 0.25rem; }
+    td:last-of-type { border-bottom: none; }
+    td::before {
+      content: attr(data-label); display: block;
+      font-size: 0.75rem; color: var(--muted); font-weight: 600; margin-bottom: 0.25rem;
+    }
+    .row-tools { text-align: right; }
+  }
+
+  #bar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: var(--card); border-top: 1px solid var(--line);
+    padding: 0.75rem 1rem; display: flex; align-items: center;
+    gap: 0.75rem; flex-wrap: wrap;
+  }
+  #status { flex: 1; font-size: 0.9rem; color: var(--muted); min-width: 10rem; }
+  #status.error { color: var(--danger); }
+  #status.saved { color: var(--ok); }
+  button.action {
+    background: var(--accent); color: #fff; border: none;
+    border-radius: 0.5rem; padding: 0.6rem 1rem;
+    font: inherit; font-weight: 600; cursor: pointer;
+  }
+  button.action[disabled] { opacity: 0.5; cursor: default; }
+  button.ghost { background: transparent; color: var(--accent); border: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header><h1>專案追蹤表</h1></header>
+
+<main>
+  <table>
+    <thead>
+      <tr>
+        <th>Progress</th><th>Insights</th><th>NPI</th><th>Remarks</th><th class="row-tools"></th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+</main>
+
+<div id="bar">
+  <span id="status">載入中…</span>
+  <button class="action ghost" id="add">＋ 新增一列</button>
+  <button class="action" id="save" disabled>儲存</button>
+</div>
+
+<script>
+const FIELDS = ['progress', 'insights', 'npi', 'remarks'];
+const LABELS = { progress: 'Progress', insights: 'Insights', npi: 'NPI', remarks: 'Remarks' };
+
+let rows = [];
+let sha = null;
+let dirty = false;
+
+const $rows = document.getElementById('rows');
+const $status = document.getElementById('status');
+const $save = document.getElementById('save');
+
+function setStatus(text, kind = '') {
+  $status.textContent = text;
+  $status.className = kind;
+}
+
+function markDirty() {
+  dirty = true;
+  $save.disabled = false;
+  setStatus('未儲存');
+}
+
+/** 每列一個穩定 id，刪掉中間某列時其他列不會錯位。 */
+function newId() {
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function autoGrow(textarea) {
+  textarea.style.height = 'auto';
+  textarea.style.height = `${textarea.scrollHeight}px`;
+}
+
+function render() {
+  $rows.textContent = '';
+  for (const row of rows) {
+    const tr = document.createElement('tr');
+
+    for (const field of FIELDS) {
+      const td = document.createElement('td');
+      td.dataset.label = LABELS[field];
+      const textarea = document.createElement('textarea');
+      textarea.value = row[field] || '';
+      textarea.addEventListener('input', () => {
+        row[field] = textarea.value;
+        autoGrow(textarea);
+        markDirty();
+      });
+      td.appendChild(textarea);
+      tr.appendChild(td);
+    }
+
+    const tools = document.createElement('td');
+    tools.className = 'row-tools';
+    const del = document.createElement('button');
+    del.className = 'del';
+    del.textContent = '✕';
+    del.title = '刪除這一列';
+    del.addEventListener('click', () => {
+      if (!confirm('刪除這一列？')) return;
+      rows = rows.filter((candidate) => candidate.id !== row.id);
+      render();
+      markDirty();
+    });
+    tools.appendChild(del);
+    tr.appendChild(tools);
+
+    $rows.appendChild(tr);
+  }
+
+  // 內容塞進 DOM 之後才量得到高度
+  for (const textarea of $rows.querySelectorAll('textarea')) autoGrow(textarea);
+}
+
+async function load() {
+  setStatus('載入中…');
+  try {
+    const response = await fetch('/api/table');
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+
+    // id 一定要放在展開之後：舊資料若沒有 id，展開會用 undefined 蓋掉剛產生的 id
+    rows = body.data.rows.map((row) => ({ ...row, id: row.id || newId() }));
+    sha = body.sha;
+    render();
+    dirty = false;
+    $save.disabled = true;
+    setStatus(body.data.updated ? `已儲存 ${body.data.updated.slice(11, 16)}` : '尚無資料', 'saved');
+  } catch (error) {
+    // 載入失敗時不要顯示空表格，那會讓人以為資料不見了
+    setStatus(`載入失敗：${error.message}`, 'error');
+  }
+}
+
+async function save() {
+  $save.disabled = true;
+  setStatus('儲存中…');
+  try {
+    const response = await fetch('/api/table', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: { v: 1, rows }, sha }),
+    });
+    const body = await response.json();
+
+    if (response.status === 409) {
+      // 衝突時絕不清空畫面 —— 使用者剛打的字必須留著
+      setStatus(body.error, 'error');
+      $save.disabled = false;
+      return;
+    }
+    if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
+
+    sha = body.sha;
+    dirty = false;
+    setStatus(`已儲存 ${body.updated.slice(11, 16)}`, 'saved');
+  } catch (error) {
+    setStatus(`儲存失敗：${error.message}`, 'error');
+    $save.disabled = false;
+  }
+}
+
+document.getElementById('add').addEventListener('click', () => {
+  rows.push({ id: newId(), progress: '', insights: '', npi: '', remarks: '' });
+  render();
+  markDirty();
+});
+
+$save.addEventListener('click', save);
+
+window.addEventListener('beforeunload', (event) => {
+  if (!dirty) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
+load();
+</script>
+</body>
+</html>

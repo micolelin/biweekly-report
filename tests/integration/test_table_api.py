@@ -142,3 +142,17 @@ def test_更新時間由伺服器決定而非瀏覽器(api, poll):
     )
     body = response.json()
     assert not body["data"]["updated"].startswith("1999")
+
+
+def test_表格頁需要密碼才打得開(base_url):
+    response = requests.get(f"{base_url}/table.html", timeout=30)
+    assert response.status_code == 401
+
+
+def test_表格頁帶帳密時送得出來(api):
+    response = api("GET", "/table.html")
+    assert response.status_code == 200
+    assert "text/html" in response.headers["Content-Type"]
+    # 四個欄位的標題都要在頁面裡
+    for label in ("Progress", "Insights", "NPI", "Remarks"):
+        assert label in response.text
