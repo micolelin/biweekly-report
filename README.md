@@ -139,3 +139,33 @@ UI（`app.py`）沒有自動化測試 —— Streamlit 介面難以自動驗證�
 - **不自動寄信**：公司信件系統通常阻擋第三方程式寄送。工作台產生可直接複製的信件內容，使用者貼進 Outlook 送出。
 - **儲存失敗時輸入框內容不清空**：資料全在雲端，斷網就存不了。若按下儲存後跳錯又被清空，剛打完的內容就沒了。清空只發生在成功路徑，靠更換 widget key 達成（不能用 `st.form(clear_on_submit=True)`，那會不分成敗一律清空）。
 - **趨勢對照頁不做數值圖表**：內容以文字為主且形式不固定，硬做圖表會失真。改為把各期的「本期重點」與「問題與需要協助」並列，讓主管看出哪些問題延續多期。窄螢幕會自動改為卡片堆疊。
+
+## 專案追蹤表
+
+網址：<https://biweekly-report.micole-m-lin.workers.dev/table>（與報告頁同一組帳密，開啟時會跳出瀏覽器內建的帳號密碼框）
+
+一張隨時可以打開來改的表格，一列一個專案，四個欄位：Progress／Insights／NPI／Remarks，內容會持續改寫而不是流水帳。窄螢幕（手機）會自動改成一列一張卡片。按「儲存」才會真正寫回，每次儲存等於一筆 git commit，所以改動有歷史可查。跟雙週報告用的記錄（`data/entries/`）完全是兩份獨立資料，互不相通。
+
+多裝置同時編輯時，後儲存的一方會被擋下並提示「這份資料在別的地方被改過了，請重新載入」，不會被悄悄覆蓋掉——但也不會自動合併，需要自己決定要不要重新載入再改一次。
+
+### 給維護者的技術細節
+
+資料存放在本 repo 的 `data` 分支（`table.enc.json`），與 `main` 分開是為了避免每次存檔都觸發 Cloudflare 重新部署。內容以 AES-GCM 加密，金鑰是 Cloudflare Secret `TABLE_KEY`；瀏覽器全程不接觸 GitHub token 也不接觸加密金鑰，加解密都在 `worker.js` 裡完成。金鑰導出用 PBKDF2-HMAC-SHA256、**100,000 次疊代**（Cloudflare Workers 對 PBKDF2 的硬性上限，超過會直接丟錯；為什麼這個數字仍然安全，見設計規格）。完整設計與取捨寫在 [`docs/superpowers/specs/2026-08-06-project-table-design.md`](docs/superpowers/specs/2026-08-06-project-table-design.md)。
+
+相關 Secret：
+
+| 名稱 | 用途 |
+|---|---|
+| `GH_TOKEN` | Worker 寫入 data 分支用的 GitHub token |
+| `TABLE_KEY` | 表格資料的加密金鑰 |
+
+### 測試
+
+```bash
+set -a && source /Users/admin/Documents/m-agent/.env && set +a
+python3 -m pytest tests/integration -v
+```
+
+沒設 `REPORT_USER` / `REPORT_PASSWORD` 時會自動 skip，預設的 `pytest` 完全離線。寫入類測試一律使用 `?slot=test`，不會碰到正式資料。
+
+**不要同時跑兩份這個測試套件。** 所有測試共用同一個 `slot=test` 資料檔，兩個 run 同時進行會互相覆蓋對方寫入的狀態，跑出來的失敗看起來像 API 或邏輯壞了，其實只是撞在一起。想跑就一次跑完、跑完再跑下一次。
