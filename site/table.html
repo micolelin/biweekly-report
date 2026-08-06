@@ -66,9 +66,14 @@
       font-size: 0.75rem; color: var(--muted); font-weight: 600; margin-bottom: 0.25rem;
     }
     .row-tools {
-      /* 拿掉桌機版的 3rem 固定寬度：手機版的刪除鍵要放大到接近建議的
-         44px 最小可點擊尺寸，48px 寬的窄欄扣掉 padding 根本塞不下，
-         會把按鈕擠出欄位。改成滿版寬度、內容靠右即可。 */
+      /* 這個 width: 100% 不是跟上面 `td { width: 100% }` 重複的死碼：
+         .row-tools 是 class selector（specificity 0,1,0），永遠贏過
+         type selector `td`（0,0,1），跟寫在 @media 裡面或後面完全無關。
+         沒有這行，這個 td 會繼續吃外層（非 @media）那條
+         `.row-tools { width: 3rem; }`，變成手機版仍然卡在 48px 寬。
+         這欄要留寬是因為刪除鍵放大到 44px（見下面 .del），48px 扣掉
+         左右 padding 只剩 40px 內容寬，放不下，按鈕會被擠出欄位、
+         有機會造成整頁橫向捲動。 */
       width: 100%; text-align: right;
     }
     .del {

@@ -41,7 +41,7 @@ def test_測試槽的檔案不存在時回空表而非錯誤(api, poll):
     """
     api("DELETE", "/api/table?slot=test")
 
-    response = poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
+    response = poll("GET", "/api/table?slot=test", lambda r: r.json().get("sha") is None)
     assert response.status_code == 200
     assert response.json()["data"]["rows"] == []
     assert response.json()["sha"] is None
@@ -66,7 +66,7 @@ def test_寫入後讀得回同樣的內容(api, poll):
     # DELETE 剛送出，緊接著的 create-PUT（sha=None）也有機會撞上同一個
     # read-after-write 空窗期：檔案還沒真的消失，PUT 會被當成「檔案已存在」
     # 擋下並回 409（409 回應沒有 sha 欄位）。等刪除真的生效再往下寫入。
-    poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
+    poll("GET", "/api/table?slot=test", lambda r: r.json().get("sha") is None)
 
     rows = [
         {"id": "r1", "progress": "第一版完成", "insights": "客戶在意延遲", "npi": "5910", "remarks": ""},
@@ -89,7 +89,7 @@ def test_寫入後讀得回同樣的內容(api, poll):
 def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
     api("DELETE", "/api/table?slot=test")
     # 同上：等刪除真的生效，才發下面這次 create-PUT，避免撞上 409。
-    poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
+    poll("GET", "/api/table?slot=test", lambda r: r.json().get("sha") is None)
 
     first = api(
         "PUT",
@@ -98,9 +98,10 @@ def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
                                           "insights": "", "npi": "", "remarks": ""}]},
               "sha": None},
     )
-    # 用 .get() 而不是 [".."]：萬一還是撞上空窗期收到 409（沒有 sha 欄位），
-    # 這裡要讓斷言失敗說清楚原因，而不是拋出看不出前因後果的 KeyError。
-    stale_sha = first.json().get("sha")
+    # 先斷言成功再拿 sha：萬一還是撞上空窗期收到 409，這裡要讓斷言失敗
+    # 印出伺服器實際回了什麼，而不是拋出看不出前因後果的 KeyError。
+    assert first.status_code == 200, first.text
+    stale_sha = first.json()["sha"]
 
     # 模擬另一台裝置先存了一次
     second = api(
@@ -110,6 +111,7 @@ def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
                                           "insights": "", "npi": "", "remarks": ""}]},
               "sha": stale_sha},
     )
+    assert second.status_code == 200, second.text
     fresh_sha = second.json()["sha"]
 
     conflicted = api(
@@ -137,7 +139,7 @@ def test_正式槽不允許刪除(api):
 def test_更新時間由伺服器決定而非瀏覽器(api, poll):
     api("DELETE", "/api/table?slot=test")
     # 同上：等刪除真的生效，才發下面這次 create-PUT，避免撞上 409。
-    poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
+    poll("GET", "/api/table?slot=test", lambda r: r.json().get("sha") is None)
 
     put_resp = api(
         "PUT",
@@ -145,6 +147,10 @@ def test_更新時間由伺服器決定而非瀏覽器(api, poll):
         json={"data": {"v": 1, "updated": "1999-01-01T00:00:00+08:00", "rows": []},
               "sha": None},
     )
+    # 先斷言成功再拿 sha：poll 有 2 秒上限、逾時就回傳最後一次的結果，
+    # 不保證 predicate 一定成立過。萬一還是撞上空窗期收到 409，這裡要讓
+    # 斷言失敗印出伺服器實際回了什麼，而不是拋出看不出前因後果的 KeyError。
+    assert put_resp.status_code == 200, put_resp.text
     expected_sha = put_resp.json()["sha"]
 
     response = poll(
