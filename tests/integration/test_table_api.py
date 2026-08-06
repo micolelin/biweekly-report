@@ -32,11 +32,16 @@ def test_取得表格時回傳資料與_sha(api):
     assert "sha" in body
 
 
-def test_測試槽的檔案不存在時回空表而非錯誤(api):
-    """第一次使用時沒有資料檔，這是正常狀況不是錯誤。"""
+def test_測試槽的檔案不存在時回空表而非錯誤(api, poll):
+    """第一次使用時沒有資料檔，這是正常狀況不是錯誤。
+
+    DELETE 剛成功，緊接著的 GET 有機會在 GitHub Contents API 的
+    read-after-write 空窗期內還讀到舊版本，所以用 poll 等 sha 真的變成
+    None 再斷言（見 conftest.py 的 poll fixture 說明）。
+    """
     api("DELETE", "/api/table?slot=test")
 
-    response = api("GET", "/api/table?slot=test")
+    response = poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
     assert response.status_code == 200
     assert response.json()["data"]["rows"] == []
     assert response.json()["sha"] is None
@@ -56,7 +61,7 @@ def test_繼承自_object_prototype_的_slot_名稱也要被拒絕(api):
         assert response.status_code == 400, f"slot={slot} 應該被拒絕"
 
 
-def test_寫入後讀得回同樣的內容(api):
+def test_寫入後讀得回同樣的內容(api, poll):
     api("DELETE", "/api/table?slot=test")
 
     rows = [
@@ -67,12 +72,17 @@ def test_寫入後讀得回同樣的內容(api):
     assert saved.status_code == 200, saved.text
     assert saved.json()["updated"].endswith("+08:00")
 
-    body = api("GET", "/api/table?slot=test").json()
+    # PUT 剛成功，緊接著的 GET 有機會讀到寫入前的舊版本，poll 到 sha
+    # 對上這次寫入的 sha 才代表讀到的是最新內容。
+    response = poll(
+        "GET", "/api/table?slot=test", lambda r: r.json().get("sha") == saved.json()["sha"]
+    )
+    body = response.json()
     assert body["data"]["rows"] == rows
     assert body["sha"] == saved.json()["sha"]
 
 
-def test_用過期的_sha_寫入會被擋下且不覆蓋(api):
+def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
     api("DELETE", "/api/table?slot=test")
 
     first = api(
@@ -85,13 +95,14 @@ def test_用過期的_sha_寫入會被擋下且不覆蓋(api):
     stale_sha = first.json()["sha"]
 
     # 模擬另一台裝置先存了一次
-    api(
+    second = api(
         "PUT",
         "/api/table?slot=test",
         json={"data": {"v": 1, "rows": [{"id": "r1", "progress": "別台裝置存的",
                                           "insights": "", "npi": "", "remarks": ""}]},
               "sha": stale_sha},
     )
+    fresh_sha = second.json()["sha"]
 
     conflicted = api(
         "PUT",
@@ -102,8 +113,10 @@ def test_用過期的_sha_寫入會被擋下且不覆蓋(api):
     )
     assert conflicted.status_code == 409
 
-    # 關鍵：衝突時資料必須維持別台裝置存的那份
-    body = api("GET", "/api/table?slot=test").json()
+    # 關鍵：衝突時資料必須維持別台裝置存的那份。GET 剛好夾在兩次 PUT
+    # 之後，一樣有讀到舊版本的空窗期，poll 到 sha 對上第二次寫入才算數。
+    response = poll("GET", "/api/table?slot=test", lambda r: r.json().get("sha") == fresh_sha)
+    body = response.json()
     assert body["data"]["rows"][0]["progress"] == "別台裝置存的"
 
 
@@ -113,15 +126,19 @@ def test_正式槽不允許刪除(api):
     assert response.status_code == 405
 
 
-def test_更新時間由伺服器決定而非瀏覽器(api):
+def test_更新時間由伺服器決定而非瀏覽器(api, poll):
     api("DELETE", "/api/table?slot=test")
 
-    api(
+    put_resp = api(
         "PUT",
         "/api/table?slot=test",
         json={"data": {"v": 1, "updated": "1999-01-01T00:00:00+08:00", "rows": []},
               "sha": None},
     )
+    expected_sha = put_resp.json()["sha"]
 
-    body = api("GET", "/api/table?slot=test").json()
+    response = poll(
+        "GET", "/api/table?slot=test", lambda r: r.json().get("sha") == expected_sha
+    )
+    body = response.json()
     assert not body["data"]["updated"].startswith("1999")

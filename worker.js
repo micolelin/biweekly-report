@@ -145,6 +145,14 @@ async function handleGetTable(env, path) {
   }
 }
 
+// ===== /api/table：寫表格 =====
+
+/** 台北時間，格式 2026-08-06T18:00:00+08:00。 */
+function taipeiNow() {
+  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return `${shifted.toISOString().slice(0, 19)}+08:00`;
+}
+
 async function handlePutTable(request, env, path) {
   let body;
   try {
@@ -279,11 +287,15 @@ function githubHeaders(env) {
   };
 }
 
+/** readFile／writeFile／deleteFile 共用的 GitHub Contents API 端點組法。 */
+function contentsUrl(path) {
+  return `https://api.github.com/repos/${REPO}/contents/${path}`;
+}
+
 async function readFile(env, path) {
-  const response = await fetch(
-    `https://api.github.com/repos/${REPO}/contents/${path}?ref=${DATA_BRANCH}`,
-    { headers: githubHeaders(env) },
-  );
+  const response = await fetch(`${contentsUrl(path)}?ref=${DATA_BRANCH}`, {
+    headers: githubHeaders(env),
+  });
 
   // 404 代表還沒有這個檔案，是第一次使用的正常狀況，不是錯誤
   if (response.status === 404) return { text: null, sha: null };
@@ -306,7 +318,7 @@ async function writeFile(env, path, text, sha, message) {
   // 沒有 sha 代表建立新檔。帶著 null 送出去 GitHub 會拒絕，所以只在有值時放進去。
   if (sha) payload.sha = sha;
 
-  const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+  const response = await fetch(contentsUrl(path), {
     method: 'PUT',
     headers: githubHeaders(env),
     body: JSON.stringify(payload),
@@ -331,7 +343,7 @@ async function deleteFile(env, path) {
   const file = await readFile(env, path);
   if (file.sha === null) return; // 本來就沒有，視為已達成目標
 
-  const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+  const response = await fetch(contentsUrl(path), {
     method: 'DELETE',
     headers: githubHeaders(env),
     body: JSON.stringify({
@@ -343,12 +355,6 @@ async function deleteFile(env, path) {
   if (!response.ok) {
     throw new Error(`刪除 GitHub 檔案失敗（HTTP ${response.status}）：${await response.text()}`);
   }
-}
-
-/** 台北時間，格式 2026-08-06T18:00:00+08:00。 */
-function taipeiNow() {
-  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
-  return `${shifted.toISOString().slice(0, 19)}+08:00`;
 }
 
 /**
