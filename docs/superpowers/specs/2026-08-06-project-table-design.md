@@ -173,7 +173,7 @@ Worker 回 `409` 與明確訊息。
 封包格式（與 `crypto.py` 相同）：
 
 ```json
-{ "v": 1, "kdf": "PBKDF2-SHA256", "iter": 300000, "salt": "…", "iv": "…", "ct": "…" }
+{ "v": 1, "kdf": "PBKDF2-SHA256", "iter": 100000, "salt": "…", "iv": "…", "ct": "…" }
 ```
 
 Worker 端用 Web Crypto 實作。**salt 與 iv 每次寫入都必須重新產生**，重複使用 iv 會讓 AES-GCM 的安全性失效。

@@ -144,7 +144,7 @@ UI（`app.py`）沒有自動化測試 —— Streamlit 介面難以自動驗證�
 
 網址：<https://biweekly-report.micole-m-lin.workers.dev/table>（與報告頁同一組帳密，開啟時會跳出瀏覽器內建的帳號密碼框）
 
-一張隨時可以打開來改的表格，一列一個專案，四個欄位：Progress／Insights／NPI／Remarks，內容會持續改寫而不是流水帳。窄螢幕（手機）會自動改成一列一張卡片。按「儲存」才會真正寫回，每次儲存等於一筆 git commit，所以改動有歷史可查。跟雙週報告用的記錄（`data/entries/`）完全是兩份獨立資料，互不相通。
+一張隨時可以打開來改的表格，一列一個專案，四個欄位：Progress／Insights／NPI／Remarks，內容會持續改寫而不是流水帳。窄螢幕（手機）會自動改成一列一張卡片。按「儲存」才會真正寫回，每一次儲存都會留下紀錄，所以改壞了、改丟了都能回頭找到之前的版本。跟雙週報告用的記錄（`data/entries/`）完全是兩份獨立資料，互不相通。
 
 多裝置同時編輯時，後儲存的一方會被擋下並提示「這份資料在別的地方被改過了，請重新載入」，不會被悄悄覆蓋掉——但也不會自動合併，需要自己決定要不要重新載入再改一次。
 
@@ -152,12 +152,14 @@ UI（`app.py`）沒有自動化測試 —— Streamlit 介面難以自動驗證�
 
 資料存放在本 repo 的 `data` 分支（`table.enc.json`），與 `main` 分開是為了避免每次存檔都觸發 Cloudflare 重新部署。內容以 AES-GCM 加密，金鑰是 Cloudflare Secret `TABLE_KEY`；瀏覽器全程不接觸 GitHub token 也不接觸加密金鑰，加解密都在 `worker.js` 裡完成。金鑰導出用 PBKDF2-HMAC-SHA256、**100,000 次疊代**（Cloudflare Workers 對 PBKDF2 的硬性上限，超過會直接丟錯；為什麼這個數字仍然安全，見設計規格）。完整設計與取捨寫在 [`docs/superpowers/specs/2026-08-06-project-table-design.md`](docs/superpowers/specs/2026-08-06-project-table-design.md)。
 
+**`TABLE_KEY` 遺失或更換等於資料報銷，沒有救回的路。** `table.enc.json` 的加密金鑰完全由 `TABLE_KEY` 這一個 Secret 導出，沒有第二把備用金鑰、也沒有找回機制。這一點跟下面的 `REPORT_USER` / `REPORT_PASSWORD` 不一樣——那兩個隨時能改，改了頂多要求大家重新登入；但 `TABLE_KEY` 一旦搞丟或直接在 Cloudflare 後台換掉，現有的 `table.enc.json` 就再也解不開，表格資料等於全毀。真的要換 `TABLE_KEY`，唯一正確做法是：先用舊金鑰把現有資料解密成明文，再用新金鑰重新加密寫回去——不能直接原地換掉 Secret 就結束。
+
 相關 Secret：
 
 | 名稱 | 用途 |
 |---|---|
-| `GH_TOKEN` | Worker 寫入 data 分支用的 GitHub token |
-| `TABLE_KEY` | 表格資料的加密金鑰 |
+| `GH_TOKEN` | Worker 存取 data 分支用的 GitHub token，讀（`GET`）跟寫（`PUT`／`DELETE`）都靠它 |
+| `TABLE_KEY` | 表格資料的加密金鑰，遺失或更換即無法還原既有資料，見上方警語 |
 
 ### 測試
 
