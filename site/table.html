@@ -19,8 +19,15 @@
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: var(--bg); color: var(--fg);
-    /* 為底部固定狀態列留位置，否則最後一列會被蓋住 */
-    padding-bottom: 5rem;
+    /* 底部固定狀態列的高度不是常數：手機窄螢幕按鈕擠不下會換成兩排，
+       狀態文字比較長（例如錯誤訊息）也可能換行，猜一個固定值不是猜太小
+       （蓋住最後一列）就是猜太大（平白多一截空白）。--bar-h 由下面的
+       JS 即時量測 #bar 的實際高度、寫在 <html> 上；var() 的第二個參數
+       是 JS 還沒跑到（或極舊瀏覽器不支援 ResizeObserver 又剛好卡在
+       resize 事件之間）時的保底值。注意這裡不能寫成
+       `body { --bar-h: 5rem }` 再讓 JS 覆寫——body 自己宣告的值一律
+       蓋過從 <html> 繼承下來的值，JS 寫在 <html> 上會被吃掉。 */
+    padding-bottom: var(--bar-h, 5rem);
   }
   header {
     background: var(--card); border-bottom: 1px solid var(--line);
@@ -58,13 +65,36 @@
       content: attr(data-label); display: block;
       font-size: 0.75rem; color: var(--muted); font-weight: 600; margin-bottom: 0.25rem;
     }
-    .row-tools { text-align: right; }
+    .row-tools {
+      /* 拿掉桌機版的 3rem 固定寬度：手機版的刪除鍵要放大到接近建議的
+         44px 最小可點擊尺寸，48px 寬的窄欄扣掉 padding 根本塞不下，
+         會把按鈕擠出欄位。改成滿版寬度、內容靠右即可。 */
+      width: 100%; text-align: right;
+    }
+    .del {
+      /* 桌機滑鼠點擊精準，26px 高的小圖示夠用；手機用手指戳，離 iOS／
+         Android 建議的 44px 最小觸控目標有段距離，容易點不中或點到隔壁。
+         這顆按鈕本來就有 confirm() 二次確認擋著，就算不小心點到也不會
+         真的刪錯資料，所以這裡選擇「故意做大、寧可不小心碰到也好過點
+         不中」，不維持小巧但常常要點兩三次才點到的尺寸。 */
+      min-width: 2.75rem; min-height: 2.75rem;
+      font-size: 1.3rem;
+      display: inline-flex; align-items: center; justify-content: center;
+    }
   }
 
   #bar {
     position: fixed; bottom: 0; left: 0; right: 0;
     background: var(--card); border-top: 1px solid var(--line);
-    padding: 0.75rem 1rem; display: flex; align-items: center;
+    padding: 0.75rem 1rem;
+    /* 有 Home Indicator 手勢列的 iPhone，把底部安全區併進 padding，
+       按鈕才不會貼著手勢熱區。這頁目前沒開 viewport-fit=cover，env()
+       現況下會落到後面的 0px 備援值（Safari 預設就會把手勢區留在頁面
+       外，不需要頁面自己讓開）；先加上是為了不用等到哪天加了
+       viewport-fit=cover，或使用者把這頁加到主畫面變成獨立 App 時
+       再回頭補。 */
+    padding-bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    display: flex; align-items: center;
     gap: 0.75rem; flex-wrap: wrap;
   }
   #status { flex: 1; font-size: 0.9rem; color: var(--muted); min-width: 10rem; }
@@ -95,7 +125,7 @@
 
 <div id="bar">
   <span id="status">載入中…</span>
-  <button class="action ghost" id="add">＋ 新增一列</button>
+  <button class="action ghost" id="add" disabled>＋ 新增一列</button>
   <button class="action" id="save" disabled>儲存</button>
 </div>
 
@@ -110,6 +140,23 @@ let dirty = false;
 const $rows = document.getElementById('rows');
 const $status = document.getElementById('status');
 const $save = document.getElementById('save');
+const $add = document.getElementById('add');
+const $bar = document.getElementById('bar');
+
+/** 把 body 的留白量成 #bar 目前的實際高度（見上面 CSS 的 --bar-h 說明），
+ *  不用猜的常數。用 ResizeObserver 而不是只在 load 時量一次，是因為換行
+ *  這件事會在畫面生命週期中重新發生：手機窄螢幕按鈕擠成兩排、或狀態列
+ *  文字變成比較長的錯誤訊息時，都會讓 #bar 變高，這時候也要跟著重量。 */
+function syncBarHeight() {
+  document.documentElement.style.setProperty('--bar-h', `${$bar.offsetHeight}px`);
+}
+syncBarHeight();
+if (window.ResizeObserver) {
+  new ResizeObserver(syncBarHeight).observe($bar);
+} else {
+  // 沒有 ResizeObserver 的舊瀏覽器：至少視窗尺寸改變（例如轉橫向）時重量一次。
+  window.addEventListener('resize', syncBarHeight);
+}
 
 function setStatus(text, kind = '') {
   $status.textContent = text;
@@ -122,7 +169,10 @@ function markDirty() {
   setStatus('未儲存');
 }
 
-/** 每列一個穩定 id，刪掉中間某列時其他列不會錯位。 */
+/** 每列一個穩定 id，刪掉中間某列時其他列不會錯位。
+ *  用 Math.random() 不是防碰撞的做法（不是 crypto.randomUUID()），
+ *  但這裡只是同一個表格內部的區分用途，碰撞機率低到可以接受，
+ *  換成真正的 UUID 對這個工具來說是過度設計。 */
 function newId() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -186,9 +236,16 @@ async function load() {
     render();
     dirty = false;
     $save.disabled = true;
+    // 「新增一列」在載入完成前一直是 disabled（見 HTML）。載入還沒回來時
+    // 頁面上除了這顆按鈕沒有任何東西能讓使用者動手（表格是空的、也還沒有
+    // textarea），所以只要在這裡才放行，就能保證不會有「使用者剛新增一列，
+    // 結果緊接著 load() 回來把整包 rows 蓋掉」這種悄悄遺失輸入的情形。
+    $add.disabled = false;
     setStatus(body.data.updated ? `已儲存 ${body.data.updated.slice(11, 16)}` : '尚無資料', 'saved');
   } catch (error) {
-    // 載入失敗時不要顯示空表格，那會讓人以為資料不見了
+    // 載入失敗時不要顯示空表格，那會讓人以為資料不見了；「新增一列」也
+    // 保持停用 —— 沒有成功載入就沒有可信的 sha 基準，這時候讓使用者新增
+    // 列還是別開放，避免之後儲存踩到不確定的狀態。
     setStatus(`載入失敗：${error.message}`, 'error');
   }
 }
