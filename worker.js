@@ -16,7 +16,7 @@
 const REALM = 'Biweekly Work Report';
 
 /** 每次改動 worker.js 都要加一。整合測試用它確認新版本已經部署完成。 */
-const API_VERSION = 4;
+const API_VERSION = 5;
 
 export default {
   async fetch(request, env) {
