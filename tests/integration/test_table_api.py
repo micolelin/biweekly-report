@@ -54,3 +54,74 @@ def test_繼承自_object_prototype_的_slot_名稱也要被拒絕(api):
     for slot in ("constructor", "toString"):
         response = api("GET", f"/api/table?slot={slot}")
         assert response.status_code == 400, f"slot={slot} 應該被拒絕"
+
+
+def test_寫入後讀得回同樣的內容(api):
+    api("DELETE", "/api/table?slot=test")
+
+    rows = [
+        {"id": "r1", "progress": "第一版完成", "insights": "客戶在意延遲", "npi": "5910", "remarks": ""},
+        {"id": "r2", "progress": "", "insights": "多行\n也要留住", "npi": "", "remarks": "備註"},
+    ]
+    saved = api("PUT", "/api/table?slot=test", json={"data": {"v": 1, "rows": rows}, "sha": None})
+    assert saved.status_code == 200, saved.text
+    assert saved.json()["updated"].endswith("+08:00")
+
+    body = api("GET", "/api/table?slot=test").json()
+    assert body["data"]["rows"] == rows
+    assert body["sha"] == saved.json()["sha"]
+
+
+def test_用過期的_sha_寫入會被擋下且不覆蓋(api):
+    api("DELETE", "/api/table?slot=test")
+
+    first = api(
+        "PUT",
+        "/api/table?slot=test",
+        json={"data": {"v": 1, "rows": [{"id": "r1", "progress": "原始內容",
+                                          "insights": "", "npi": "", "remarks": ""}]},
+              "sha": None},
+    )
+    stale_sha = first.json()["sha"]
+
+    # 模擬另一台裝置先存了一次
+    api(
+        "PUT",
+        "/api/table?slot=test",
+        json={"data": {"v": 1, "rows": [{"id": "r1", "progress": "別台裝置存的",
+                                          "insights": "", "npi": "", "remarks": ""}]},
+              "sha": stale_sha},
+    )
+
+    conflicted = api(
+        "PUT",
+        "/api/table?slot=test",
+        json={"data": {"v": 1, "rows": [{"id": "r1", "progress": "不該蓋掉別人",
+                                          "insights": "", "npi": "", "remarks": ""}]},
+              "sha": stale_sha},
+    )
+    assert conflicted.status_code == 409
+
+    # 關鍵：衝突時資料必須維持別台裝置存的那份
+    body = api("GET", "/api/table?slot=test").json()
+    assert body["data"]["rows"][0]["progress"] == "別台裝置存的"
+
+
+def test_正式槽不允許刪除(api):
+    """DELETE 只是測試用的工具，絕不能拿來刪正式資料。"""
+    response = api("DELETE", "/api/table")
+    assert response.status_code == 405
+
+
+def test_更新時間由伺服器決定而非瀏覽器(api):
+    api("DELETE", "/api/table?slot=test")
+
+    api(
+        "PUT",
+        "/api/table?slot=test",
+        json={"data": {"v": 1, "updated": "1999-01-01T00:00:00+08:00", "rows": []},
+              "sha": None},
+    )
+
+    body = api("GET", "/api/table?slot=test").json()
+    assert not body["data"]["updated"].startswith("1999")

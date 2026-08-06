@@ -16,7 +16,7 @@
 const REALM = 'Biweekly Work Report';
 
 /** 每次改動 worker.js 都要加一。整合測試用它確認新版本已經部署完成。 */
-const API_VERSION = 3;
+const API_VERSION = 4;
 
 export default {
   async fetch(request, env) {
@@ -84,6 +84,19 @@ async function handleApi(request, env, url) {
     const path = SLOT_FILES[slot];
 
     if (request.method === 'GET') return handleGetTable(env, path);
+    if (request.method === 'PUT') return handlePutTable(request, env, path);
+    if (request.method === 'DELETE') {
+      // 刪除只是測試用的工具，正式資料一律不給刪
+      if (slot !== 'test') {
+        return jsonResponse({ error: '正式資料不提供刪除。' }, 405);
+      }
+      try {
+        await deleteFile(env, path);
+        return jsonResponse({ deleted: true });
+      } catch (error) {
+        return jsonResponse({ error: String(error.message) }, 502);
+      }
+    }
     return jsonResponse({ error: `不支援的方法：${request.method}` }, 405);
   }
 
@@ -129,6 +142,38 @@ async function handleGetTable(env, path) {
       { error: `解密失敗，資料未被更動。請確認 TABLE_KEY 是否正確：${error.message}` },
       500,
     );
+  }
+}
+
+async function handlePutTable(request, env, path) {
+  let body;
+  try {
+    body = await request.json();
+  } catch {
+    return jsonResponse({ error: '送出的內容不是合法的 JSON。' }, 400);
+  }
+
+  const rows = body?.data?.rows;
+  if (!Array.isArray(rows)) {
+    return jsonResponse({ error: 'data.rows 必須是陣列。' }, 400);
+  }
+
+  // updated 由伺服器決定。瀏覽器的時鐘不可信，而且不同裝置會不一致。
+  const data = { v: 1, updated: taipeiNow(), rows };
+
+  try {
+    const envelope = await encryptJson(data, env.TABLE_KEY);
+    const result = await writeFile(
+      env,
+      path,
+      JSON.stringify(envelope),
+      body.sha ?? null,
+      `chore(table): 更新專案追蹤表 ${data.updated}`,
+    );
+    return jsonResponse({ sha: result.sha, updated: data.updated });
+  } catch (error) {
+    if (error.conflict) return jsonResponse({ error: error.message }, 409);
+    return jsonResponse({ error: String(error.message) }, 502);
   }
 }
 
@@ -244,6 +289,60 @@ async function readFile(env, path) {
   // GitHub 回的 base64 含換行，atob 不接受，要先清掉
   const raw = fromBase64(body.content.replace(/\n/g, ''));
   return { text: new TextDecoder().decode(raw), sha: body.sha };
+}
+
+async function writeFile(env, path, text, sha, message) {
+  const payload = {
+    message,
+    content: toBase64(new TextEncoder().encode(text)),
+    branch: DATA_BRANCH,
+  };
+  // 沒有 sha 代表建立新檔。帶著 null 送出去 GitHub 會拒絕，所以只在有值時放進去。
+  if (sha) payload.sha = sha;
+
+  const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+    method: 'PUT',
+    headers: githubHeaders(env),
+    body: JSON.stringify(payload),
+  });
+
+  // 409 是 sha 對不上，422 是「檔案已存在但沒給 sha」。兩者都代表同一件事：
+  // 這份資料在別的地方被改過了。
+  if (response.status === 409 || response.status === 422) {
+    const error = new Error('這份資料在別的地方被改過了，請重新載入後再存一次。');
+    error.conflict = true;
+    throw error;
+  }
+  if (!response.ok) {
+    throw new Error(`寫入 GitHub 失敗（HTTP ${response.status}）：${await response.text()}`);
+  }
+
+  const body = await response.json();
+  return { sha: body.content.sha };
+}
+
+async function deleteFile(env, path) {
+  const file = await readFile(env, path);
+  if (file.sha === null) return; // 本來就沒有，視為已達成目標
+
+  const response = await fetch(`https://api.github.com/repos/${REPO}/contents/${path}`, {
+    method: 'DELETE',
+    headers: githubHeaders(env),
+    body: JSON.stringify({
+      message: 'chore(table): 清除測試資料',
+      sha: file.sha,
+      branch: DATA_BRANCH,
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(`刪除 GitHub 檔案失敗（HTTP ${response.status}）：${await response.text()}`);
+  }
+}
+
+/** 台北時間，格式 2026-08-06T18:00:00+08:00。 */
+function taipeiNow() {
+  const shifted = new Date(Date.now() + 8 * 60 * 60 * 1000);
+  return `${shifted.toISOString().slice(0, 19)}+08:00`;
 }
 
 /**
