@@ -63,6 +63,10 @@ def test_繼承自_object_prototype_的_slot_名稱也要被拒絕(api):
 
 def test_寫入後讀得回同樣的內容(api, poll):
     api("DELETE", "/api/table?slot=test")
+    # DELETE 剛送出，緊接著的 create-PUT（sha=None）也有機會撞上同一個
+    # read-after-write 空窗期：檔案還沒真的消失，PUT 會被當成「檔案已存在」
+    # 擋下並回 409（409 回應沒有 sha 欄位）。等刪除真的生效再往下寫入。
+    poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
 
     rows = [
         {"id": "r1", "progress": "第一版完成", "insights": "客戶在意延遲", "npi": "5910", "remarks": ""},
@@ -84,6 +88,8 @@ def test_寫入後讀得回同樣的內容(api, poll):
 
 def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
     api("DELETE", "/api/table?slot=test")
+    # 同上：等刪除真的生效，才發下面這次 create-PUT，避免撞上 409。
+    poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
 
     first = api(
         "PUT",
@@ -92,7 +98,9 @@ def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
                                           "insights": "", "npi": "", "remarks": ""}]},
               "sha": None},
     )
-    stale_sha = first.json()["sha"]
+    # 用 .get() 而不是 [".."]：萬一還是撞上空窗期收到 409（沒有 sha 欄位），
+    # 這裡要讓斷言失敗說清楚原因，而不是拋出看不出前因後果的 KeyError。
+    stale_sha = first.json().get("sha")
 
     # 模擬另一台裝置先存了一次
     second = api(
@@ -128,6 +136,8 @@ def test_正式槽不允許刪除(api):
 
 def test_更新時間由伺服器決定而非瀏覽器(api, poll):
     api("DELETE", "/api/table?slot=test")
+    # 同上：等刪除真的生效，才發下面這次 create-PUT，避免撞上 409。
+    poll("GET", "/api/table?slot=test", lambda r: r.json()["sha"] is None)
 
     put_resp = api(
         "PUT",

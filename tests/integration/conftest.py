@@ -41,6 +41,25 @@ def api(auth, base_url):
     return call
 
 
+@pytest.fixture(scope="session", autouse=True)
+def _cleanup_test_slot(auth, base_url):
+    """整個 session 結束後把 test slot 清乾淨。
+
+    各測試只在自己開始時做一次 DELETE，不代表測試結束時是乾淨的——最後一個
+    使用 test slot 的測試通常會留一筆寫入，於是 data 分支上就留了一個殘留
+    commit。這裡用 session 範圍、autouse 的 fixture，在整個檔案的所有測試
+    都跑完後才做最後一次 DELETE，不依賴任何單一測試自己收尾。
+
+    刻意不透過 `api` fixture：`api` 是 function scope，session scope 的
+    fixture 沒辦法依賴它，所以這裡直接用 `auth`／`base_url`（兩者都是
+    session scope）自己組一次請求。
+    """
+    yield
+    requests.request(
+        "DELETE", f"{base_url}/api/table?slot=test", auth=auth, timeout=30
+    )
+
+
 @pytest.fixture
 def poll(api):
     """回傳一個會重試的 api() 版本，用來讀「剛寫入／剛刪除」之後的狀態。
