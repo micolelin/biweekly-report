@@ -200,22 +200,25 @@ with tab_report:
 
     if st.button("Generate draft", key="report_generate"):
         try:
-            items = summarize_mod.collect_period_entries(
-                store, period_start, period_end
-            )
-            st.session_state["draft"] = summarize_mod.summarize(
-                items, period_start, period_end, provider=provider
-            )
+            with st.spinner(f"Summarising with {provider}…"):
+                items = summarize_mod.collect_period_entries(
+                    store, period_start, period_end
+                )
+                text = summarize_mod.summarize(
+                    items, period_start, period_end, provider=provider
+                )
         except Exception as exc:  # noqa: BLE001
-            show_error("Summarising failed — you can still write the draft manually below", exc)
-            st.session_state.setdefault("draft", "")
+            show_error(
+                "Summarising failed — you can still write the draft manually below", exc
+            )
+        else:
+            # 必須直接寫進 text_area 自己的 key。寫進別的鍵再靠 value= 帶入是沒用的：
+            # widget 一旦渲染過，Streamlit 就優先採用它記住的值而忽略 value=，
+            # 畫面會完全沒有反應。此處 widget 尚未在本次執行中被實例化，賦值合法。
+            st.session_state["draft_editor"] = text
+            st.info(f"Draft generated from {len(items)} note(s). Review it below.")
 
-    draft = st.text_area(
-        "Draft (edit freely)",
-        value=st.session_state.get("draft", ""),
-        height=420,
-        key="draft_editor",
-    )
+    draft = st.text_area("Draft (edit freely)", height=420, key="draft_editor")
 
     if st.button("Save and publish", type="primary", key="report_publish"):
         if not draft.strip():
