@@ -146,13 +146,13 @@ UI（`app.py`）沒有自動化測試 —— Streamlit 介面難以自動驗證�
 
 一張隨時可以打開來改的表格，一列一個專案，四個欄位：Progress／Insights／NPI／Remarks，內容會持續改寫而不是流水帳。窄螢幕（手機）會自動改成一列一張卡片。按「儲存」才會真正寫回，每一次儲存都會留下紀錄，所以改壞了、改丟了都能回頭找到之前的版本。跟雙週報告用的記錄（`data/entries/`）完全是兩份獨立資料，互不相通。
 
-多裝置同時編輯時，後儲存的一方會被擋下並提示「這份資料在別的地方被改過了，請重新載入」，不會被悄悄覆蓋掉——但也不會自動合併，需要自己決定要不要重新載入再改一次。
+多裝置同時編輯時，後儲存的一方會被擋下，並提示先複製剛打的內容、再重新整理頁面、貼回去後再存一次，不會被悄悄覆蓋掉——但也不會自動合併，需要自己決定要不要重新整理再改一次。
 
 ### 給維護者的技術細節
 
 資料存放在本 repo 的 `data` 分支（`table.enc.json`），與 `main` 分開是為了避免每次存檔都觸發 Cloudflare 重新部署。內容以 AES-GCM 加密，金鑰是 Cloudflare Secret `TABLE_KEY`；瀏覽器全程不接觸 GitHub token 也不接觸加密金鑰，加解密都在 `worker.js` 裡完成。金鑰導出用 PBKDF2-HMAC-SHA256、**100,000 次疊代**（Cloudflare Workers 對 PBKDF2 的硬性上限，超過會直接丟錯；為什麼這個數字仍然安全，見設計規格）。完整設計與取捨寫在 [`docs/superpowers/specs/2026-08-06-project-table-design.md`](docs/superpowers/specs/2026-08-06-project-table-design.md)。
 
-**`TABLE_KEY` 遺失或更換等於資料報銷，沒有救回的路。** `table.enc.json` 的加密金鑰完全由 `TABLE_KEY` 這一個 Secret 導出，沒有第二把備用金鑰、也沒有找回機制。這一點跟下面的 `REPORT_USER` / `REPORT_PASSWORD` 不一樣——那兩個隨時能改，改了頂多要求大家重新登入；但 `TABLE_KEY` 一旦搞丟或直接在 Cloudflare 後台換掉，現有的 `table.enc.json` 就再也解不開，表格資料等於全毀。真的要換 `TABLE_KEY`，唯一正確做法是：先用舊金鑰把現有資料解密成明文，再用新金鑰重新加密寫回去——不能直接原地換掉 Secret 就結束。
+**`TABLE_KEY` 遺失或更換等於資料報銷，沒有救回的路。** `table.enc.json` 的加密金鑰完全由 `TABLE_KEY` 這一個 Secret 導出，沒有第二把備用金鑰、也沒有找回機制。這一點跟下面的 `REPORT_USER` / `REPORT_PASSWORD` 不一樣——那兩個隨時能改，改了頂多要求大家重新登入；但 `TABLE_KEY` 一旦搞丟或直接在 Cloudflare 後台換掉，現有的 `table.enc.json` 就再也解不開，表格資料等於全毀。真的要換 `TABLE_KEY`，唯一正確做法是：先用舊金鑰把現有資料解密成明文，再用新金鑰重新加密寫回去——不能直接原地換掉 Secret 就結束。**若借用 `m-agent/codelist/dashboard/crypto.py` 的 `encrypt_json()` 做重新加密，務必先把疊代次數改成 100,000 次再呼叫**（例如 `crypto.ITERATIONS = 100000` 之後再呼叫 `crypto.encrypt_json(...)`；這支函式沒有 `iterations` 參數，讀的是模組層級的 `ITERATIONS`）：`crypto.py` 預設是 300,000 次，是給另一個系統用的、那邊沒問題，但 Cloudflare Workers 的 PBKDF2 上限是 100,000 次，用預設值加密出來的檔案 Worker 完全解不開（錯誤訊息會明講是疊代次數超標，不是 TABLE_KEY 設錯，但還是得重新用對的疊代數再加密一次才能解決）。
 
 相關 Secret：
 

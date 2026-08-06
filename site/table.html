@@ -141,6 +141,8 @@ const LABELS = { progress: 'Progress', insights: 'Insights', npi: 'NPI', remarks
 let rows = [];
 let sha = null;
 let dirty = false;
+let editSeq = 0; // 每次編輯 +1，save() 送出前拍下快照，回應回來時比對有沒有變過
+let saving = false; // PUT 還在飛行中；擋住 markDirty() 重新啟用儲存鈕，避免帶著同一個 sha 發第二次請求
 
 const $rows = document.getElementById('rows');
 const $status = document.getElementById('status');
@@ -170,14 +172,22 @@ function setStatus(text, kind = '') {
 
 function markDirty() {
   dirty = true;
+  editSeq += 1;
+  // 存檔還在飛行中時不要動按鈕跟狀態列：重新啟用儲存鈕會讓使用者能在同一個
+  // sha 還沒更新前又點一次儲存，送出第二個 PUT，自己把自己擠成 409。
+  // editSeq 已經記到了，save() 回應回來時會自己判斷要不要顯示「未儲存」。
+  if (saving) return;
   $save.disabled = false;
   setStatus('未儲存');
 }
 
 /** 每列一個穩定 id，刪掉中間某列時其他列不會錯位。
- *  用 Math.random() 不是防碰撞的做法（不是 crypto.randomUUID()），
- *  但這裡只是同一個表格內部的區分用途，碰撞機率低到可以接受，
- *  換成真正的 UUID 對這個工具來說是過度設計。 */
+ *  用 Math.random() 不是防碰撞的做法（不是 crypto.randomUUID()）：真的撞號
+ *  的話後果不只是「兩列看起來很像」——刪除鈕是用 rows.filter(c => c.id
+ *  !== row.id) 找要留下的列，兩列共用同一個 id 會在按一次刪除時一起消失。
+ *  但 Math.random().toString(36) 取 8 碼、約 40 bits 亂數空間，對一張表
+ *  通常只有幾十列的規模，碰撞機率低到可以接受，換成真正的 UUID 對這個
+ *  工具來說是過度設計。 */
 function newId() {
   return Math.random().toString(36).slice(2, 10);
 }
@@ -256,8 +266,15 @@ async function load() {
 }
 
 async function save() {
+  if (saving) return; // 已經有一個 PUT 在飛行中，不要再送第二個
+  saving = true;
   $save.disabled = true;
   setStatus('儲存中…');
+  // 在送出前拍下這一刻的編輯序號。JSON.stringify 在下面同步組好 body，
+  // 之後（fetch 送出到回應回來這段時間，實測 0.5～2 秒）使用者若繼續打字，
+  // rows 會被改動，但那些改動不在剛剛序列化好的 body 裡——回應回來時要
+  // 比對 editSeq 有沒有變過，變過就不能宣稱「已儲存」。
+  const seq = editSeq;
   try {
     const response = await fetch('/api/table', {
       method: 'PUT',
@@ -269,21 +286,38 @@ async function save() {
     if (response.status === 409) {
       // 衝突時絕不清空畫面 —— 使用者剛打的字必須留著
       setStatus(body.error, 'error');
+      saving = false;
       $save.disabled = false;
       return;
     }
     if (!response.ok) throw new Error(body.error || `HTTP ${response.status}`);
 
+    // sha 不論下面判斷結果如何都要更新：這次寫入確實已經送達 GitHub，
+    // 下一次存檔要以這個新 sha 為基準，不然會拿舊 sha 去送，自己製造 409。
     sha = body.sha;
-    dirty = false;
-    setStatus(`已儲存 ${body.updated.slice(11, 16)}`, 'saved');
+    saving = false;
+
+    if (editSeq === seq) {
+      // 送出後沒有人再動過任何欄位，這次回應涵蓋了畫面上的全部內容，
+      // 這才是真的「已儲存」。
+      dirty = false;
+      $save.disabled = true;
+      setStatus(`已儲存 ${body.updated.slice(11, 16)}`, 'saved');
+    } else {
+      // 飛行中使用者又打了字，那些內容沒被送出去，不能宣稱已儲存——
+      // 否則 beforeunload 不會攔阻，使用者會誤以為新打的東西已經存好了。
+      dirty = true;
+      $save.disabled = false;
+      setStatus('未儲存');
+    }
   } catch (error) {
     setStatus(`儲存失敗：${error.message}`, 'error');
+    saving = false;
     $save.disabled = false;
   }
 }
 
-document.getElementById('add').addEventListener('click', () => {
+$add.addEventListener('click', () => {
   rows.push({ id: newId(), progress: '', insights: '', npi: '', remarks: '' });
   render();
   markDirty();

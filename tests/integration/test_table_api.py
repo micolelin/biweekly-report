@@ -81,6 +81,7 @@ def test_寫入後讀得回同樣的內容(api, poll):
     response = poll(
         "GET", "/api/table?slot=test", lambda r: r.json().get("sha") == saved.json()["sha"]
     )
+    assert response.status_code == 200, response.text
     body = response.json()
     assert body["data"]["rows"] == rows
     assert body["sha"] == saved.json()["sha"]
@@ -126,6 +127,7 @@ def test_用過期的_sha_寫入會被擋下且不覆蓋(api, poll):
     # 關鍵：衝突時資料必須維持別台裝置存的那份。GET 剛好夾在兩次 PUT
     # 之後，一樣有讀到舊版本的空窗期，poll 到 sha 對上第二次寫入才算數。
     response = poll("GET", "/api/table?slot=test", lambda r: r.json().get("sha") == fresh_sha)
+    assert response.status_code == 200, response.text
     body = response.json()
     assert body["data"]["rows"][0]["progress"] == "別台裝置存的"
 
@@ -156,17 +158,18 @@ def test_更新時間由伺服器決定而非瀏覽器(api, poll):
     response = poll(
         "GET", "/api/table?slot=test", lambda r: r.json().get("sha") == expected_sha
     )
+    assert response.status_code == 200, response.text
     body = response.json()
     assert not body["data"]["updated"].startswith("1999")
 
 
 def test_表格頁需要密碼才打得開(base_url):
-    response = requests.get(f"{base_url}/table.html", timeout=30)
+    response = requests.get(f"{base_url}/table", timeout=30)
     assert response.status_code == 401
 
 
 def test_表格頁帶帳密時送得出來(api):
-    response = api("GET", "/table.html")
+    response = api("GET", "/table")
     assert response.status_code == 200
     assert "text/html" in response.headers["Content-Type"]
     # 四個欄位的標題都要在頁面裡

@@ -43,7 +43,7 @@
 | 資料 | `table.enc.json`（**data 分支**根目錄） |
 | Worker | `worker.js`（main 分支，擴充現有檔案） |
 
-網址：`https://biweekly-report.micole-m-lin.workers.dev/table.html`
+網址：`https://biweekly-report.micole-m-lin.workers.dev/table`
 
 **資料為什麼放 data 分支**：Cloudflare 盯著 `main` 自動部署。若每次存檔都往 `main` commit，
 等於每存一次就觸發一次 Worker 重新部署——白燒建置額度，且存檔當下 Worker 可能正在重啟。
@@ -53,7 +53,7 @@
 
 **讀取**
 
-1. 瀏覽器開 `/table.html` → Worker 的 Basic Auth 擋一次（現有機制，不修改）
+1. 瀏覽器開 `/table` → Worker 的 Basic Auth 擋一次（現有機制，不修改）
 2. 頁面載入後打 `GET /api/table`
 3. Worker 用 `GH_TOKEN` 從 data 分支讀 `table.enc.json`
 4. 用 `TABLE_KEY` 解密，回傳明文 JSON 與該檔案的 GitHub sha
@@ -167,8 +167,26 @@ Worker 回 `409` 與明確訊息。
 是 32 bytes 的隨機值（`secrets.token_urlsafe(32)`，約 256 bit 熵），不在可暴力窮舉的
 範圍內，疊代次數多寡對它沒有實質差別。OWASP 建議的 600,000 次針對的是人選密碼的情境。
 
-`crypto.py` 的常數不需要跟著改：解密端一律讀封包裡的 `iter` 欄位，不是讀死常數，
-所以兩邊仍然互通。已實測 Python 解得開 Worker 產生的密文。
+`crypto.py` 的常數不需要跟著改，但兩邊互通**只有一個方向是自動成立的**：
+
+- Python 解 Worker 產生的密文：沒問題。Worker 一律用 100,000 次加密、把這個數字
+  忠實寫進封包的 `iter` 欄位，Python 端解密時讀的是封包裡的 `iter`，不是自己的
+  `ITERATIONS` 常數，所以直接讀得開。已實測。
+- Worker 解 `crypto.py` 產生的密文：**不行**，除非加密前把疊代次數改成
+  100,000。`crypto.py` 的 `encrypt_json(payload, passphrase)` 沒有
+  `iterations` 參數，一律讀模組層級的 `ITERATIONS`（預設 300,000）去加密、
+  寫進封包的 `iter`；Cloudflare Workers 的 PBKDF2 實作對疊代數有 100,000
+  的硬性上限，超過會直接丟錯，Worker 端完全解不開。
+
+也就是說：**用 `crypto.py` 幫這份 `table.enc.json` 重新加密（例如換
+`TABLE_KEY` 的流程）時，必須先把疊代次數改成 100,000 次再呼叫**——
+例如在呼叫前執行 `crypto.ITERATIONS = 100000`，因為 `encrypt_json`
+是在呼叫當下讀這個模組變數，不是在定義時就固定住。不能直接用
+`crypto.py` 的預設值，否則產生出來的檔案 Worker 讀不了，而且錯誤訊息
+一開始容易被誤認成 `TABLE_KEY` 設錯（Worker 端已對這個情況做了特別判斷，
+見 `worker.js` 的 `decryptJson`，訊息會直接點名是疊代次數超標，不會導向
+去查 `TABLE_KEY`）。**`crypto.py` 本身不用改**——300,000 次是它服務的
+另一個系統的正確預設值，這裡只是呼叫端在重新加密這一份檔案時暫時覆蓋。
 
 封包格式（與 `crypto.py` 相同）：
 

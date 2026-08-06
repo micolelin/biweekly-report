@@ -16,7 +16,7 @@
 const REALM = 'Biweekly Work Report';
 
 /** 每次改動 worker.js 都要加一。整合測試用它確認新版本已經部署完成。 */
-const API_VERSION = 6;
+const API_VERSION = 7;
 
 export default {
   async fetch(request, env) {
@@ -94,7 +94,7 @@ async function handleApi(request, env, url) {
         await deleteFile(env, path);
         return jsonResponse({ deleted: true });
       } catch (error) {
-        return jsonResponse({ error: String(error.message) }, 502);
+        return jsonResponse({ error: error.message }, 502);
       }
     }
     return jsonResponse({ error: `不支援的方法：${request.method}` }, 405);
@@ -138,6 +138,11 @@ async function handleGetTable(env, path) {
     return jsonResponse({ data, sha: file.sha });
   } catch (error) {
     // 絕不能在這裡回空表。回空表會讓人以為資料被清掉，接著一存就真的清掉了。
+    if (error.iterTooHigh) {
+      // 疊代數超標是這支檔案本身的問題，不是 TABLE_KEY 的問題——
+      // 不要套用下面那句會把人導去查 TABLE_KEY 的通用訊息。
+      return jsonResponse({ error: error.message }, 500);
+    }
     return jsonResponse(
       { error: `解密失敗，資料未被更動。請確認 TABLE_KEY 是否正確：${error.message}` },
       500,
@@ -181,7 +186,7 @@ async function handlePutTable(request, env, path) {
     return jsonResponse({ sha: result.sha, updated: data.updated });
   } catch (error) {
     if (error.conflict) return jsonResponse({ error: error.message }, 409);
-    return jsonResponse({ error: String(error.message) }, 502);
+    return jsonResponse({ error: error.message }, 502);
   }
 }
 
@@ -253,6 +258,19 @@ async function encryptJson(payload, passphrase) {
 async function decryptJson(envelope, passphrase) {
   if (envelope.v !== CRYPTO_VERSION) {
     throw new Error(`不支援的封包版本：${envelope.v}`);
+  }
+  if (envelope.iter > KDF_ITERATIONS) {
+    // 不能直接丟給 deriveKey：Cloudflare 的 PBKDF2 實作遇到超過上限的疊代數
+    // 會丟一個看起來像平台故障的錯誤，跟金鑰對不對完全無關，卻很容易被誤
+    // 認成 TABLE_KEY 設錯。多半是用 m-agent 的 crypto.py（預設 300000 次）
+    // 重新加密了這個檔案，這裡先攔下來，講清楚是疊代數的問題。
+    const error = new Error(
+      `這份檔案的疊代次數（${envelope.iter}）超過 Cloudflare Workers 的上限 ` +
+        `${KDF_ITERATIONS}，無法在這裡解密，與 TABLE_KEY 是否正確無關。若是用 ` +
+        `crypto.py 重新加密的，請把疊代次數改成 ${KDF_ITERATIONS} 再重新加密一次。`,
+    );
+    error.iterTooHigh = true;
+    throw error;
   }
   const key = await deriveKey(passphrase, fromBase64(envelope.salt), envelope.iter);
   const plaintext = await crypto.subtle.decrypt(
@@ -327,7 +345,12 @@ async function writeFile(env, path, text, sha, message) {
   // 409 是 sha 對不上，422 是「檔案已存在但沒給 sha」。兩者都代表同一件事：
   // 這份資料在別的地方被改過了。
   if (response.status === 409 || response.status === 422) {
-    const error = new Error('這份資料在別的地方被改過了，請重新載入後再存一次。');
+    // 順序很重要：使用者這時候螢幕上還留著剛打的字，訊息要先講「存起來」
+    // 再講「重新整理」——顛倒過來的話，使用者照著做就等於自己把還沒送出去
+    // 的內容洗掉，跟這支檢查原本要保護的東西正好相反。
+    const error = new Error(
+      '這份資料在別的地方被改過了。請先把你剛改的內容複製起來，再重新整理頁面，貼回去後再存一次。',
+    );
     error.conflict = true;
     throw error;
   }
