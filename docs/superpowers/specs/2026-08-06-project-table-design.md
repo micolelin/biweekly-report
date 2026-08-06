@@ -154,9 +154,21 @@ Worker 回 `409` 與明確訊息。
 | 項目 | 值 |
 |---|---|
 | 對稱加密 | AES-GCM，256 bit |
-| 金鑰導出 | PBKDF2-HMAC-SHA256，300,000 次 |
+| 金鑰導出 | PBKDF2-HMAC-SHA256，100,000 次 |
 | salt | 16 bytes，每次加密重新產生 |
 | iv | 12 bytes，每次加密重新產生 |
+
+**疊代次數為什麼是 10 萬而非原訂的 30 萬**：Cloudflare Workers 對 PBKDF2 設有
+100,000 次的硬性上限，超過會丟 `NotSupportedError`（平台為防阻斷攻擊而設，
+見 <https://github.com/cloudflare/workerd/issues/1346>）。30 萬在 Workers 上無法執行，
+沒有替代方案。
+
+實際安全性不受影響：疊代次數的作用是拖慢對「人選密碼」的暴力猜測，而 `TABLE_KEY`
+是 32 bytes 的隨機值（`secrets.token_urlsafe(32)`，約 256 bit 熵），不在可暴力窮舉的
+範圍內，疊代次數多寡對它沒有實質差別。OWASP 建議的 600,000 次針對的是人選密碼的情境。
+
+`crypto.py` 的常數不需要跟著改：解密端一律讀封包裡的 `iter` 欄位，不是讀死常數，
+所以兩邊仍然互通。已實測 Python 解得開 Worker 產生的密文。
 
 封包格式（與 `crypto.py` 相同）：
 
