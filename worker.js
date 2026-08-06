@@ -16,7 +16,7 @@
 const REALM = 'Biweekly Work Report';
 
 /** 每次改動 worker.js 都要加一。整合測試用它確認新版本已經部署完成。 */
-const API_VERSION = 2;
+const API_VERSION = 3;
 
 export default {
   async fetch(request, env) {
@@ -75,8 +75,13 @@ async function handleApi(request, env, url) {
     if (!env.TABLE_KEY) return jsonResponse({ error: '伺服器未設定 TABLE_KEY' }, 500);
 
     const slot = slotName(url);
+    // hasOwnProperty 才是真的查白名單本身；一般的 [] 存取會沿原型鏈往上找，
+    // slot=constructor / toString 這類名稱會拿到 Object.prototype 上的東西，
+    // 讓白名單形同虛設。
+    if (!Object.prototype.hasOwnProperty.call(SLOT_FILES, slot)) {
+      return jsonResponse({ error: `不合法的 slot：${slot}` }, 400);
+    }
     const path = SLOT_FILES[slot];
-    if (!path) return jsonResponse({ error: `不合法的 slot：${slot}` }, 400);
 
     if (request.method === 'GET') return handleGetTable(env, path);
     return jsonResponse({ error: `不支援的方法：${request.method}` }, 405);
@@ -84,6 +89,8 @@ async function handleApi(request, env, url) {
 
   return jsonResponse({ error: `沒有這個端點：${url.pathname}` }, 404);
 }
+
+// ===== /api/table：讀表格 =====
 
 function emptyTable() {
   return { v: 1, updated: null, rows: [] };
@@ -94,15 +101,27 @@ async function handleGetTable(env, path) {
   try {
     file = await readFile(env, path);
   } catch (error) {
-    return jsonResponse({ error: String(error.message) }, 502);
+    return jsonResponse({ error: error.message }, 502);
   }
 
   if (file.text === null) {
     return jsonResponse({ data: emptyTable(), sha: null });
   }
 
+  let envelope;
   try {
-    const data = await decryptJson(JSON.parse(file.text), env.TABLE_KEY);
+    envelope = JSON.parse(file.text);
+  } catch (error) {
+    // 檔案內容本身壞掉（不是合法 JSON），跟密碼對不對無關，訊息要分開講，
+    // 不然會讓人跑去查一個其實沒問題的 TABLE_KEY。
+    return jsonResponse(
+      { error: `資料檔內容不是合法的 JSON，資料未被更動：${error.message}` },
+      500,
+    );
+  }
+
+  try {
+    const data = await decryptJson(envelope, env.TABLE_KEY);
     return jsonResponse({ data, sha: file.sha });
   } catch (error) {
     // 絕不能在這裡回空表。回空表會讓人以為資料被清掉，接著一存就真的清掉了。

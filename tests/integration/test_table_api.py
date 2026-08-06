@@ -46,3 +46,11 @@ def test_不合法的_slot_被拒絕(api):
     """slot 直接對應檔名，不擋就等於讓外部指定要讀哪個檔。"""
     response = api("GET", "/api/table?slot=../../etc/passwd")
     assert response.status_code == 400
+
+
+def test_繼承自_object_prototype_的_slot_名稱也要被拒絕(api):
+    """物件字面量的 [] 存取會沿原型鏈往上找，slot=constructor 這類名稱
+    會拿到 Object.prototype 上的東西而不是 undefined，等於白名單被繞過。"""
+    for slot in ("constructor", "toString"):
+        response = api("GET", f"/api/table?slot={slot}")
+        assert response.status_code == 400, f"slot={slot} 應該被拒絕"
