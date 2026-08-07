@@ -200,9 +200,12 @@ const KDF_NAME = 'PBKDF2-SHA256';
 // Cloudflare Workers 的 PBKDF2 實作硬性限制最多 100000 次疊代，
 // 超過會直接丟錯（'Pbkdf2 failed: iteration counts above 100000 are not
 // supported'），不是這裡能調的效能問題，是平台上限。
-// m-agent/codelist/dashboard/crypto.py 的預設仍是 300000，兩邊不需要一致：
-// 解密時雙方都是讀封包裡的 iter 欄位重新算 key（不是各自的常數），
-// 所以只要封包忠實記錄加密當下用的疊代次數，兩邊互解就不受影響。
+// m-agent/codelist/dashboard/crypto.py 的預設仍是 300000，兩邊互解只有單向行得通：
+// Python 解 Worker 產生的密文沒問題——crypto.py 讀封包裡的 iter 欄位（100000）
+// 重新算 key，Python 端沒有疊代數上限。反過來，Worker 解 crypto.py 用預設值
+// （300000）加密出來的密文會失敗，因為超過 Cloudflare 的 100000 上限，deriveKey
+// 會直接丟錯。下面 decryptJson 裡的疊代數檢查（約第 262 行）就是為了在這種情況
+// 先攔下來，講清楚是疊代數問題，而不是讓錯誤看起來像 TABLE_KEY 設錯。
 const KDF_ITERATIONS = 100000;
 const SALT_BYTES = 16;
 const IV_BYTES = 12;
